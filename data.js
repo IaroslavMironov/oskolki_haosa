@@ -123,11 +123,11 @@ window.CODEX = {
 Наша месть тебя прямо в бездну заберёт` }
   ],
 
-  // map: координаты на карте (холст 1000×620)
+  // map: координаты на карте (холст 1600×1000). Рисунок замка/леса/деревни строится вокруг этих точек.
   locations: [
-    { title: "Замок Элронда", text: "Родовой замок. Место Багровой бойни и текущая резиденция Визиуса. Символ всего, что было отнято.", img: "castle.jpg", gallery: ["castle.jpg", "elrond.jpg", "battle.jpg"], map: { x: 300, y: 225 } },
-    { title: "Лес у замка", text: "Лес, где Айла когда-то спасла Ильви и куда Вулкан вывел девочек в ночь бойни. Первое убежище после резни.", img: "forest.jpg", gallery: ["forest.jpg", "ilvy.jpg", "karga.jpg"], map: { x: 530, y: 360 } },
-    { title: "Дороги и таверны", text: "Места, где отряд проводит годы после побега. Здесь происходят многие события их взросления и охоты.", img: "tavern.jpg", video: "media/street.mp4", gallery: ["tavern.jpg", "ayla2.jpg", "ayla3.jpg"], map: { x: 800, y: 470 } }
+    { title: "Замок Элронда", text: "Родовой замок. Место Багровой бойни и текущая резиденция Визиуса. Символ всего, что было отнято.", img: "castle.jpg", gallery: ["castle.jpg", "elrond.jpg", "battle.jpg"], map: { x: 480, y: 360 } },
+    { title: "Лес у замка", text: "Лес, где Айла когда-то спасла Ильви и куда Вулкан вывел девочек в ночь бойни. Первое убежище после резни.", img: "forest.jpg", gallery: ["forest.jpg", "ilvy.jpg", "karga.jpg"], map: { x: 760, y: 560 } },
+    { title: "Дороги и таверны", text: "Места, где отряд проводит годы после побега. Здесь происходят многие события их взросления и охоты.", img: "tavern.jpg", video: "media/street.mp4", gallery: ["tavern.jpg", "ayla2.jpg", "ayla3.jpg"], map: { x: 1240, y: 700 } }
   ],
 
   songs: [
@@ -214,7 +214,7 @@ window.CODEX = {
 В корни медленно сойди... нет дороги впереди` },
 
     { title: "Сладкая дрянь", preview: "media/previews/sladkaya-dryan.mp3", links: { vk: "", yandex: "" },
-      img: "miri.jpg", characters: ["Мири", "Айла", "Ильви", "Вулкан"], locations: ["Дороги и таверны"],
+      img: "sladkaya-cover.jpg", characters: ["Мири", "Айла", "Ильви", "Вулкан"], locations: ["Дороги и таверны"],
       clip: "media/sladkaya-dryan-teaser.mp4", clipPoster: "media/sladkaya-dryan-poster.jpg",
       text: "Таверна, стража и выбитый леденец. Мири — неоновый блик и смерть в розовых сапогах.",
       lyrics: `Мы сидим в таверне, едим мясо пиво пьем

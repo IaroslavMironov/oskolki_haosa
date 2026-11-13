@@ -1,12 +1,14 @@
-/* Кодекс «Осколки хаоса» — движок. Контент — в data.js */
+/* Кодекс «Осколки хаоса» — движок. Контент — в data.js, рисунок карты — в map.js */
 (() => {
 const D = window.CODEX;
+const OPT = window.OPT || {};
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const clamp = (v, a = 0, b = 1) => Math.min(b, Math.max(a, v));
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
 const fine = matchMedia('(pointer: fine)').matches;
+const narrow = () => innerWidth <= 900;
 if (fine) document.documentElement.classList.add('fine');
 // после перезагрузки всегда начинаем сверху, без восстановления старой позиции
 history.scrollRestoration = 'manual';
@@ -35,22 +37,42 @@ for (const t in TYPES) for (const item of D[t]) {
   }
 }
 
+/* ═══════════ Картинки: WebP нужного размера (opt/, см. tools/optimize.py) ═══════════ */
+const stem = src => 'opt/' + src.replace(/\.\w+$/, '');
+const srcset = src => OPT[src] ? OPT[src].map(w => `${stem(src)}-${w}.webp ${w}w`).join(', ') : '';
+// один URL под нужную ширину (для фонов, постеров, лайтбокса); нет в манифесте — оригинал
+const best = (src, want) => { const s = OPT[src]; if (!s) return src; return `${stem(src)}-${s.find(w => w >= want) || s[s.length - 1]}.webp`; };
+const SIZES = {
+  card: '(max-width: 900px) 50vw, 300px',
+  chron: '(max-width: 900px) 84vw, 440px',
+  full: '100vw',
+  entry: '(max-width: 900px) 100vw, 50vw',
+  panel: '(max-width: 900px) 100vw, 320px',
+  thumb: '120px'
+};
+const imgTag = (src, alt = '', sizes = SIZES.full, cls = '', eager = false) =>
+  `<img class="${cls}" src="${esc(best(src, 960))}" ${OPT[src] ? `srcset="${srcset(src)}" sizes="${sizes}"` : ''} alt="${esc(alt)}" decoding="async" ${eager ? 'fetchpriority="high"' : 'loading="lazy"'}>`;
+
 /* картинка или «оживлённое» видео.
    mode: 'auto' — играет, пока видно на экране; 'hover' — по наведению; 'play' — сразу */
-function media(item, cls = '', mode = 'auto') {
-  // hover-видео грузим заранее (они ~300 КБ), иначе при наведении рывок на загрузку первого кадра
-  if (item.video) return `<video class="${cls}" src="${esc(item.video)}" poster="${esc(item.img || '')}" muted loop playsinline preload="${mode === 'auto' ? 'none' : 'auto'}" ${mode === 'play' ? 'autoplay' : mode === 'auto' ? 'data-auto' : ''}></video>`;
-  return item.img ? `<img class="${cls}" src="${esc(item.img)}" alt="${esc(item.title)}" loading="lazy">` : '';
+//       'one' — карточки на телефоне: одновременно играет только одно видео (см. initCharacters)
+function media(item, cls = '', mode = 'auto', sizes = SIZES.full) {
+  const preload = { auto: 'none', one: 'metadata' }[mode] || 'auto';
+  if (item.video) return `<video class="${cls}" src="${esc(item.video)}" poster="${esc(item.img ? best(item.img, 480) : '')}" muted loop playsinline preload="${preload}" ${mode === 'play' ? 'autoplay' : mode === 'auto' ? 'data-auto' : ''}></video>`;
+  return item.img ? imgTag(item.img, item.title, sizes, cls) : '';
 }
 const vidIo = new IntersectionObserver(es => es.forEach(e => e.isIntersecting ? e.target.play().catch(() => {}) : e.target.pause()), { threshold: .25 });
 const watchVideos = (root = document) => $$('video[data-auto]', root).forEach(v => vidIo.observe(v));
 const LINK_NAMES = { yandex: 'Яндекс Музыка', vk: 'VK Музыка', vkGroup: 'Сообщество VK' };
 const LINK_ICON = { yandex: 'i-yandex', vk: 'i-vk', vkGroup: 'i-vk' };
-const icon = k => LINK_ICON[k] ? `<svg class="li"><use href="#${LINK_ICON[k]}"/></svg>` : '';
+const icon = k => LINK_ICON[k] ? `<svg class="li" aria-hidden="true"><use href="#${LINK_ICON[k]}"/></svg>` : '';
 // keys — какие ссылки показывать (на странице песни сообщество не нужно)
 const linkBtns = (links, cls = 'btn ghost listen', keys = Object.keys(LINK_NAMES)) => keys.filter(k => links?.[k])
-  .map(k => `<a class="${cls}" href="${esc(links[k])}" target="_blank" rel="noopener">${icon(k)}${LINK_NAMES[k]} <span>↗</span></a>`).join('');
+  .map(k => `<a class="${cls}" href="${esc(links[k])}" target="_blank" rel="noopener">${icon(k)}${LINK_NAMES[k]} <span aria-hidden="true">↗</span></a>`).join('');
 const openAttr = item => `data-open="${item.type}|${esc(item.title)}"`;
+
+/* общее состояние кадра: всё, что зависит от прокрутки, считаем только когда она изменилась */
+const S = { y: -1, vh: innerHeight, max: 1, dirty: true, modal: false, heat: 0 };
 
 /* ═══════════ Заставка ═══════════ */
 function initSplash() {
@@ -61,14 +83,17 @@ function initSplash() {
     return `<span class="ch" style="--tx:${Math.cos(a) * d}px;--ty:${Math.sin(a) * d}px;--r:${(Math.random() - .5) * 120}deg;--d:${.15 + (k++) * .07}s">${ch}</span>`;
   }).join('')}</span>`;
   t.innerHTML = row('ОСКОЛКИ', 'r1') + row('ХАОСА', 'r2');
-  const inner = $('.splash-inner');
-  setTimeout(() => inner.classList.add('settled'), 3400);
+  const splash = $('#splash'), inner = $('.splash-inner');
+  // анимацию букв начинаем только когда шрифт загружен — иначе посреди полёта буквы «перескакивают» на другой шрифт
+  const go = () => { if (splash.classList.contains('go')) return; splash.classList.add('go'); setTimeout(() => inner.classList.add('settled'), 3400); };
+  Promise.race([document.fonts?.ready, new Promise(r => setTimeout(r, 2500))]).then(go, go);
   $('#splash-seal').addEventListener('click', breakSeal, { once: true });
 }
 
 function breakSeal(e) {
   const splash = $('#splash'), inner = $('.splash-inner', splash);
   const seal = $('#splash-seal');
+  splash.classList.add('go');
   inner.classList.add('settled');
   seal.classList.add('broken');
   Theme.unlock(find('songs', D.characters[0].theme)?.preview); // клик по печати — жест пользователя, разрешаем звук
@@ -76,6 +101,7 @@ function breakSeal(e) {
     document.body.classList.remove('locked');
     document.body.classList.add('entered');
     scrollTo({ top: 0, behavior: 'instant' }); // instant: иначе smooth-скролл проезжает всю страницу
+    measure();
   };
   if (reduce) { splash.style.transition = 'opacity .6s'; splash.style.opacity = 0; enter(); setTimeout(() => splash.remove(), 700); return; }
 
@@ -83,7 +109,7 @@ function breakSeal(e) {
   const px = e.clientX || W / 2, py = e.clientY || H / 2;
   const fx = px / W * 100, fy = py / H * 100;
   // сетка с дрожанием → треугольники-осколки
-  const C = W > 700 ? 6 : 3, R = W > 700 ? 4 : 4, pts = [];
+  const C = W > 700 ? 6 : 3, R = 4, pts = [];
   for (let r = 0; r <= R; r++) {
     pts[r] = [];
     for (let c = 0; c <= C; c++) {
@@ -101,12 +127,12 @@ function breakSeal(e) {
     // Каждый осколок — блок размером со свой треугольник (а не на весь экран):
     // иначе десятки полноэкранных слоёв съедают видеопамять и iPhone перезагружает вкладку.
     const shards = tris.map(tri => {
-      const px = tri.map(p => [p[0] / 100 * W, p[1] / 100 * H]);
-      const x0 = Math.floor(Math.min(...px.map(p => p[0]))), y0 = Math.floor(Math.min(...px.map(p => p[1])));
-      const x1 = Math.ceil(Math.max(...px.map(p => p[0]))), y1 = Math.ceil(Math.max(...px.map(p => p[1])));
+      const pp = tri.map(p => [p[0] / 100 * W, p[1] / 100 * H]);
+      const x0 = Math.floor(Math.min(...pp.map(p => p[0]))), y0 = Math.floor(Math.min(...pp.map(p => p[1])));
+      const x1 = Math.ceil(Math.max(...pp.map(p => p[0]))), y1 = Math.ceil(Math.max(...pp.map(p => p[1])));
       const s = document.createElement('div');
       s.className = 'shard';
-      s.style.cssText = `left:${x0}px;top:${y0}px;width:${x1 - x0}px;height:${y1 - y0}px;clip-path:polygon(${px.map(p => `${(p[0] - x0).toFixed(1)}px ${(p[1] - y0).toFixed(1)}px`).join(',')})`;
+      s.style.cssText = `left:${x0}px;top:${y0}px;width:${x1 - x0}px;height:${y1 - y0}px;clip-path:polygon(${pp.map(p => `${(p[0] - x0).toFixed(1)}px ${(p[1] - y0).toFixed(1)}px`).join(',')})`;
       const clone = inner.cloneNode(true);
       clone.classList.add('shard-clone');
       clone.querySelectorAll('[id]').forEach(n => n.removeAttribute('id'));
@@ -139,7 +165,7 @@ function breakSeal(e) {
 }
 
 /* ═══════════ Герой: портрет-осколки ═══════════ */
-const hero = { shards: [], mx: 0, my: 0, tx: 0, ty: 0 };
+const hero = { shards: [], mx: 0, my: 0, tx: 0, ty: 0, last: '' };
 function initHero() {
   $('#hero-tag').textContent = D.hero.tagline;
   const C = [52, 36];
@@ -152,54 +178,57 @@ function initHero() {
     [C, [0, 26], [0, 0], [30, 0]]
   ];
   const box = $('#hero-shards');
+  hero.portrait = $('#hero-portrait');
+  hero.copy = $('.hero-copy');
+  const img = imgTag(D.hero.img, 'Айла в горящей короне', '(max-width: 900px) 100vw, 40vw', '', true);
   hero.shards = polys.map((p, i) => {
     const el = document.createElement('div');
     el.className = 'hero-shard';
     el.style.setProperty('--clip', `polygon(${p.map(q => `${q[0]}% ${q[1]}%`).join(',')})`);
-    el.innerHTML = `<img src="${esc(D.hero.img)}" alt="${i ? '' : 'Айла в горящей короне'}">`;
+    el.innerHTML = i ? img.replace(/alt="[^"]*"/, 'alt=""') : img;
     box.appendChild(el);
     const cx = p.reduce((s, q) => s + q[0], 0) / p.length - C[0], cy = p.reduce((s, q) => s + q[1], 0) / p.length - C[1];
     const l = Math.hypot(cx, cy) || 1;
     return { el, dx: cx / l, dy: cy / l, depth: .5 + (i % 3) * .35, rot: (i % 2 ? 1 : -1) * (2 + i) };
   });
-  if (fine) addEventListener('pointermove', e => { hero.tx = e.clientX / innerWidth * 2 - 1; hero.ty = e.clientY / innerHeight * 2 - 1; });
+  if (fine) addEventListener('pointermove', e => { hero.tx = e.clientX / innerWidth * 2 - 1; hero.ty = e.clientY / innerHeight * 2 - 1; }, { passive: true });
 }
 function tickHero() {
-  const hp = clamp(scrollY / innerHeight);
-  if (hp >= 1 && hero.lastHp >= 1) return;
-  hero.lastHp = hp;
+  if (S.y > S.vh * 1.05 && hero.done) return; // герой ушёл с экрана — ничего не считаем
   hero.mx += (hero.tx - hero.mx) * .06;
   hero.my += (hero.ty - hero.my) * .06;
-  const portrait = $('#hero-portrait');
-  portrait.style.setProperty('--hp', hp);
+  const hp = clamp(S.y / S.vh);
+  const key = `${hp.toFixed(3)}|${hero.mx.toFixed(3)}|${hero.my.toFixed(3)}`;
+  if (key === hero.last) return; // ничего не изменилось — не трогаем стили
+  hero.last = key; hero.done = hp >= 1;
+  hero.portrait.style.setProperty('--hp', hp.toFixed(3));
   const spread = hp * 80 + 3;
   for (const s of hero.shards) {
-    s.el.style.transform = `translate(${s.dx * spread + hero.mx * s.depth * 14}px, ${s.dy * spread + hero.my * s.depth * 14}px) rotate(${s.rot * hp}deg)`;
+    s.el.style.transform = `translate3d(${(s.dx * spread + hero.mx * s.depth * 14).toFixed(1)}px, ${(s.dy * spread + hero.my * s.depth * 14).toFixed(1)}px, 0) rotate(${(s.rot * hp).toFixed(2)}deg)`;
   }
-  $('.hero-copy').style.transform = `translate(${hero.mx * -10}px, ${hero.my * -8 + hp * -80}px)`;
-  $('.hero-copy').style.opacity = 1 - hp * 1.2;
+  hero.copy.style.transform = `translate3d(${(hero.mx * -10).toFixed(1)}px, ${(hero.my * -8 + hp * -80).toFixed(1)}px, 0)`;
+  hero.copy.style.opacity = (1 - hp * 1.2).toFixed(3);
 }
 
 /* ═══════════ Пролог ═══════════ */
 let proWords = [], proLit = -1;
 function initPrologue() {
-  const html = D.prologue.split(/\s+/).map(w => {
+  $('#prologue-text').innerHTML = D.prologue.split(/\s+/).map(w => {
     const hot = /^\*|\*[.,—!?]*$/.test(w);
     return `<span class="w${hot ? ' hot' : ''}">${esc(w.replace(/\*/g, ''))}</span>`;
   }).join(' ');
-  $('#prologue-text').innerHTML = html;
   proWords = $$('#prologue-text .w');
 }
 
 /* ═══════════ Персонажи ═══════════ */
 function initCharacters() {
   $('#cards').innerHTML = D.characters.map((c, i) => `
-    <article class="card" ${openAttr(c)} data-faction="${c.faction}" data-reveal style="--i:${i % 4}" tabindex="0">
+    <article class="card" ${openAttr(c)} data-faction="${c.faction}" data-reveal style="--i:${i % 4}" tabindex="0" aria-label="${esc(c.title)} — открыть в кодексе">
       <div class="card-in">
-        <div class="card-media">${media(c, '', fine ? 'hover' : 'auto')}</div>
+        <div class="card-media">${media(c, '', fine ? 'hover' : 'one', SIZES.card)}</div>
         <div class="card-glare"></div>
         <div class="card-frame"></div>
-        ${c.theme ? '<span class="card-sing"></span>' : ''}
+        ${c.theme ? '<span class="card-sing" aria-hidden="true"></span>' : ''}
         <div class="card-body">
           <span class="card-tag">${esc(FACTION[c.faction] || '')}${c.role ? ' · ' + esc(c.role) : ''}</span>
           <h3>${esc(c.title)}</h3>
@@ -210,7 +239,7 @@ function initCharacters() {
 
   $('#filters').addEventListener('click', e => {
     const b = e.target.closest('button'); if (!b) return;
-    $$('#filters button').forEach(x => x.classList.toggle('active', x === b));
+    $$('#filters button').forEach(x => { x.classList.toggle('active', x === b); x.setAttribute('aria-pressed', x === b); });
     let k = 0;
     $$('#cards .card').forEach(card => {
       const show = b.dataset.f === 'all' || card.dataset.faction === b.dataset.f;
@@ -218,7 +247,20 @@ function initCharacters() {
       card.classList.remove('pop');
       if (show) { void card.offsetWidth; card.style.setProperty('--k', k++); card.classList.add('pop'); }
     });
+    measure();
   });
+
+  // Телефон: четыре видео сразу дают ~50% рывков на слабом CPU — играет только самое видимое
+  if (!fine) {
+    const ratio = new Map();
+    const pick = new IntersectionObserver(es => {
+      es.forEach(e => ratio.set(e.target, e.intersectionRatio));
+      let top = null, best = .5;
+      ratio.forEach((r, v) => { if (r > best) { best = r; top = v; } });
+      ratio.forEach((r, v) => v === top ? v.play().catch(() => {}) : v.pause());
+    }, { threshold: [0, .25, .5, .75, 1] });
+    $$('#cards video').forEach(v => pick.observe(v));
+  }
 
   $$('#cards .card').forEach((card, i) => {
     const v = fine && $('video', card);
@@ -230,29 +272,31 @@ function initCharacters() {
       const s = card.style; ['--rx', '--ry', '--mx', '--my'].forEach(p => s.removeProperty(p));
     });
     if (!fine) return;
-    let raf = 0, ev;
+    let raf = 0, ev, rect;
+    card.addEventListener('pointerenter', () => { rect = card.getBoundingClientRect(); });
     card.addEventListener('pointermove', e => {
       ev = e;
       if (raf) return;
-      raf = requestAnimationFrame(() => { // не чаще кадра
+      raf = requestAnimationFrame(() => { // не чаще кадра, без повторного замера размеров
         raf = 0;
-        const r = card.getBoundingClientRect();
+        const r = rect || card.getBoundingClientRect();
         const x = (ev.clientX - r.left) / r.width, y = (ev.clientY - r.top) / r.height;
         const s = card.style;
-        s.setProperty('--ry', `${(x - .5) * 16}deg`);
-        s.setProperty('--rx', `${(.5 - y) * 14}deg`);
-        s.setProperty('--mx', x * 2 - 1);
-        s.setProperty('--my', y * 2 - 1);
-        s.setProperty('--gx', `${x * 100}%`);
-        s.setProperty('--gy', `${y * 100}%`);
+        s.setProperty('--ry', `${((x - .5) * 16).toFixed(2)}deg`);
+        s.setProperty('--rx', `${((.5 - y) * 14).toFixed(2)}deg`);
+        s.setProperty('--mx', (x * 2 - 1).toFixed(3));
+        s.setProperty('--my', (y * 2 - 1).toFixed(3));
+        s.setProperty('--gx', `${(x * 100).toFixed(1)}%`);
+        s.setProperty('--gy', `${(y * 100).toFixed(1)}%`);
       });
-    });
+    }, { passive: true });
   });
 }
 
 /* ── тема персонажа: отрывок при задержке курсора на карточке ── */
 const Theme = (() => {
   const a = new Audio();
+  a.preload = 'none';
   let timer = 0, fadeRaf = 0, cur = null;
   let on = true;
   try { on = localStorage.getItem('codex-sound') !== 'off'; } catch {}
@@ -262,9 +306,9 @@ const Theme = (() => {
     const step = t => { const k = clamp((t - t0) / ms); a.volume = from + (to - from) * k; k < 1 ? (fadeRaf = requestAnimationFrame(step)) : done?.(); };
     fadeRaf = requestAnimationFrame(step);
   };
-  const stop = () => { clearTimeout(timer); if (cur) cur.classList.remove('sing'); cur = null; fade(0, 450, () => a.pause()); };
+  const stop = () => { clearTimeout(timer); if (cur) cur.classList.remove('sing'); cur = null; if (!a.paused) fade(0, 450, () => a.pause()); };
   const btn = $('#sound-toggle');
-  const paint = () => { btn.classList.toggle('off', !on); btn.setAttribute('aria-label', on ? 'Выключить звук персонажей' : 'Включить звук персонажей'); btn.title = on ? 'Звук персонажей: вкл' : 'Звук персонажей: выкл'; };
+  const paint = () => { btn.classList.toggle('off', !on); btn.setAttribute('aria-pressed', on); btn.setAttribute('aria-label', on ? 'Выключить звук персонажей' : 'Включить звук персонажей'); btn.title = on ? 'Звук персонажей: вкл' : 'Звук персонажей: выкл'; };
   btn.addEventListener('click', () => { Theme.unlock(); on = !on; try { localStorage.setItem('codex-sound', on ? 'on' : 'off'); } catch {} if (!on) stop(); paint(); });
   paint();
   const say = (card, text) => { const tag = $('.card-sing', card); if (tag) tag.textContent = text; cur = card; card.classList.add('sing'); };
@@ -300,8 +344,8 @@ function initChronicle() {
   $('#chron-track').innerHTML = D.timeline.map(t => {
     const songs = (t.songs || []).map(s => find('songs', s)).filter(Boolean);
     return `
-    <article class="chron-panel" ${openAttr(t)}>
-      ${t.future ? '<div class="chron-future">?</div>' : `<div class="chron-img">${media(t)}</div>`}
+    <article class="chron-panel" ${openAttr(t)} tabindex="0">
+      ${t.future ? '<div class="chron-future" aria-hidden="true">?</div>' : `<div class="chron-img">${media(t, '', 'auto', SIZES.chron)}</div>`}
       <div>
         <div class="chron-year">${esc(t.year)}</div>
         <h3>${esc(t.title)}</h3>
@@ -310,7 +354,6 @@ function initChronicle() {
       </div>
     </article>`;
   }).join('');
-  sizeChronicle();
 }
 function sizeChronicle() {
   const sec = $('#chronicle'), track = $('#chron-track');
@@ -325,13 +368,13 @@ function initEvents() {
     (links.get(ev)?.songs ? [...links.get(ev).songs] : []).map(s => `<button class="btn ghost" ${openAttr(find('songs', s))}>♪ ${esc(s)}</button>`).join('')}</div>`;
   $('#scenes').innerHTML = D.events.map(ev => {
     if (ev.scene === 'blood') {
-      const drips = Array.from({ length: 22 }, () =>
+      const drips = Array.from({ length: narrow() ? 12 : 22 }, () =>
         `<i class="drip" style="left:${Math.random() * 100}%;--w:${4 + Math.random() * 12}px;--len:${15 + Math.random() * 60};--s:${Math.random() * .35}"></i>`).join('');
       return `<div class="scene scene-blood" data-progress>
         <div class="scene-sticky">
           <div class="scene-bg">${media(ev)}</div>
           <div class="blood-veil"></div>
-          <div class="drips"><div class="drip-top"></div>${drips}</div>
+          <div class="drips" aria-hidden="true"><div class="drip-top"></div>${drips}</div>
           <div class="scene-text">
             <p class="kicker" style="--t:.05">${esc(ev.year || '')}</p>
             <h2 class="blood-title" style="--t:.12">${esc(ev.title)}</h2>
@@ -364,8 +407,8 @@ function initEvents() {
           <div class="envelope">
             <div class="env-flap"></div>
             <button class="seal" id="letter-seal" aria-label="Сломать печать письма">
-              <span class="seal-half l"><svg><use href="#crown"/></svg></span>
-              <span class="seal-half r"><svg><use href="#crown"/></svg></span>
+              <span class="seal-half l"><svg aria-hidden="true"><use href="#crown"/></svg></span>
+              <span class="seal-half r"><svg aria-hidden="true"><use href="#crown"/></svg></span>
             </button>
           </div>
           <p class="letter-hint">Сломай печать</p>
@@ -386,22 +429,23 @@ function initEvents() {
 
   const torch = $('#torch');
   if (torch) {
-    const st = torch._t = { x: .5, y: .45, tx: .5, ty: .45, last: 0, on: false };
+    const st = torch._t = { x: .5, y: .45, tx: .5, ty: .45, last: 0, on: false, el: torch, hint: $('.torch-hint', torch) };
     const move = e => {
       const r = torch.getBoundingClientRect();
       st.tx = (e.clientX - r.left) / r.width; st.ty = (e.clientY - r.top) / r.height;
       st.last = performance.now();
-      $('.torch-hint', torch).classList.add('gone');
+      st.hint.classList.add('gone');
     };
-    torch.addEventListener('pointermove', move);
-    torch.addEventListener('pointerdown', move);
+    torch.addEventListener('pointermove', move, { passive: true });
+    torch.addEventListener('pointerdown', move, { passive: true });
     torch.addEventListener('pointerenter', () => $('.cursor-ring')?.classList.add('torch'));
     torch.addEventListener('pointerleave', () => $('.cursor-ring')?.classList.remove('torch'));
     new IntersectionObserver(([en]) => st.on = en.isIntersecting).observe(torch);
+    tickTorch.st = st;
   }
 }
 function tickTorch(t) {
-  const torch = $('#torch'); const st = torch?._t;
+  const st = tickTorch.st;
   if (!st?.on) return;
   if (t - st.last > 2500) { // автопилот: факел бродит сам
     st.tx = .5 + Math.sin(t / 2100) * .3;
@@ -409,96 +453,115 @@ function tickTorch(t) {
   }
   st.x += (st.tx - st.x) * .08; st.y += (st.ty - st.y) * .08;
   const r = (innerWidth < 700 ? 170 : 280) * (1 + Math.sin(t / 90) * .03 + Math.sin(t / 37) * .02);
-  const s = torch.style;
-  s.setProperty('--x', `${st.x * 100}%`); s.setProperty('--y', `${st.y * 100}%`); s.setProperty('--r', `${r}px`);
+  const s = st.el.style;
+  s.setProperty('--x', `${(st.x * 100).toFixed(2)}%`); s.setProperty('--y', `${(st.y * 100).toFixed(2)}%`); s.setProperty('--r', `${r.toFixed(0)}px`);
 }
 
 /* ═══════════ Карта ═══════════ */
-function seeded(n) { return () => (n = (n * 16807) % 2147483647) / 2147483647; }
+const Map2 = { world: null, stage: null, k: 1, sel: -1 };
 function initMap() {
-  const rnd = seeded(11);
-  const L = Object.fromEntries(D.locations.map(l => [l.title, l]));
-  const castle = L['Замок Элронда']?.map, forest = L['Лес у замка']?.map, roads = L['Дороги и таверны']?.map;
-  const trees = [];
-  for (let i = 0; i < 170; i++) {
-    const a = rnd() * Math.PI * 2, d = Math.sqrt(rnd());
-    const x = 540 + Math.cos(a) * 210 * d, y = 350 + Math.sin(a) * 120 * d, s = 9 + rnd() * 9;
-    trees.push([x, y, s]);
-  }
-  trees.sort((a, b) => a[1] - b[1]);
-  const treeSvg = trees.map(([x, y, s]) => `<path d="M${x} ${y - s * 1.3}L${x + s * .6} ${y + s * .4}L${x - s * .6} ${y + s * .4}Z"/>`).join('');
-  const mountains = [[80, 120], [150, 95], [220, 130], [300, 90], [380, 125], [460, 100], [540, 70], [620, 110]].map(([x, y]) =>
-    `<path d="M${x - 50} ${y + 40}L${x} ${y - 30}L${x + 50} ${y + 40}"/><path class="snow" d="M${x - 14} ${y - 10}L${x} ${y - 30}L${x + 14} ${y - 10}"/>`).join('');
-  const houses = roads ? [[0, 0], [28, 12], [-24, 18], [52, -6], [10, 30]].map(([dx, dy]) => {
-    const x = roads.x + dx + 20, y = roads.y + dy - 30;
-    return `<path d="M${x - 10} ${y}V${y - 14}L${x} ${y - 24}L${x + 10} ${y - 14}V${y}Z"/>`;
-  }).join('') : '';
-  const castleSvg = castle ? (() => {
-    const { x, y } = castle; const b = y + 4;
-    return `<g class="castle-g">
-      <path d="M${x - 46} ${b}V${b - 34}H${x + 46}V${b}Z"/>
-      <path d="M${x - 58} ${b}V${b - 58}h8v6h6v-6h8v58Z"/><path d="M${x + 36} ${b}V${b - 58}h8v6h6v-6h8v58Z"/>
-      <path d="M${x - 14} ${b - 34}V${b - 82}h7v7h7v-7h7v7h7v-7h0v48Z"/>
-      <path d="M${x - 7} ${b}v-14a7 7 0 0 1 14 0v14"/>
-      <path class="flag" d="M${x} ${b - 82}v-22l18 6l-18 6"/></g>`;
-  })() : '';
-  const routePath = castle && forest ? `M${castle.x + 10} ${castle.y + 10} C ${castle.x + 70} ${castle.y + 90}, ${forest.x - 120} ${forest.y - 10}, ${forest.x} ${forest.y}` : '';
-  const roadPath = castle && roads ? `M${castle.x} ${castle.y + 6} C ${castle.x + 160} ${castle.y + 30}, ${castle.x + 200} ${roads.y - 40}, ${roads.x} ${roads.y} S 960 520, 1010 540` : '';
+  const L = Object.fromEntries(D.locations.map(l => [l.title, l.map]));
+  const art = CodexMap.build({ castle: L['Замок Элронда'], forest: L['Лес у замка'], town: L['Дороги и таверны'] });
+  const { W, H } = art;
+  const pct = (x, y) => `left:${(x / W * 100).toFixed(3)}%;top:${(y / H * 100).toFixed(3)}%`;
+  const stage = Map2.stage = $('#map-stage'), world = Map2.world = $('#map-world'), wrap = $('.map-wrap');
 
-  $('#map-svg').innerHTML = `
-    <defs>
-      <radialGradient id="parch" cx="50%" cy="45%" r="70%"><stop offset="0" stop-color="#2a1f17"/><stop offset=".7" stop-color="#15100c"/><stop offset="1" stop-color="#070505"/></radialGradient>
-      <filter id="glow"><feGaussianBlur stdDeviation="3" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
-      <mask id="route-mask"><path class="route-draw" d="${routePath}" pathLength="1" stroke="#fff" stroke-width="10" fill="none"/></mask>
-    </defs>
-    <rect width="1000" height="620" fill="url(#parch)"/>
-    <rect x="14" y="14" width="972" height="592" fill="none" stroke="rgba(214,163,92,.35)"/>
-    <rect x="22" y="22" width="956" height="576" fill="none" stroke="rgba(214,163,92,.18)"/>
-    <text class="lbl-big" x="500" y="600" text-anchor="middle">КОРОЛЕВСТВО</text>
-    <path d="M700 -10 C 650 120, 760 200, 700 320 S 640 520, 720 640" fill="none" stroke="rgba(80,130,150,.35)" stroke-width="7"/>
-    <g fill="#120d0a" stroke="rgba(214,163,92,.45)" stroke-width="1.4" stroke-linejoin="round">${mountains.replace(/class="snow"/g, 'stroke="rgba(236,227,214,.5)" fill="none"')}</g>
-    <path d="${roadPath}" fill="none" stroke="rgba(214,163,92,.4)" stroke-width="2.5" stroke-dasharray="2 7" stroke-linecap="round"/>
-    <g fill="#16231a" stroke="rgba(90,140,95,.55)" stroke-width="1">${treeSvg}</g>
-    <g fill="#140f0c" stroke="rgba(214,163,92,.7)" stroke-width="1.6">${castleSvg}${houses}</g>
-    <path d="${routePath}" mask="url(#route-mask)" fill="none" stroke="#ff2d95" stroke-width="3" stroke-dasharray="9 7" filter="url(#glow)"/>
-    <g transform="translate(900 110)" stroke="rgba(214,163,92,.6)" fill="none">
-      <circle r="38"/><circle r="30" stroke-dasharray="2 4"/>
-      <path d="M0 -52L7 0L0 52L-7 0Z" fill="rgba(214,163,92,.25)"/><path d="M-52 0L0 -7L52 0L0 7Z"/>
-      <text y="-58" text-anchor="middle" stroke="none" style="font-size:16px">С</text>
-    </g>
-    ${D.locations.filter(l => l.map).map((l, i) => `
-      <g class="pin" data-loc="${i}" transform="translate(${l.map.x} ${l.map.y})" tabindex="0" role="button" aria-label="${esc(l.title)}">
-        <circle class="ring" r="9" fill="none" stroke="#ff2d95" stroke-width="2"/>
-        <circle class="dot" r="8" fill="rgba(255,45,149,.35)" stroke="#ff2d95" stroke-width="2" filter="url(#glow)"/>
-        <circle class="core" r="3" fill="#ff7ac3"/>
-        <text class="lbl" y="${l.map.y > 400 ? 44 : -26}" text-anchor="middle">${esc(l.title)}</text>
-      </g>`).join('')}
-    ${castle && forest ? `<text x="${(castle.x + forest.x) / 2 - 30}" y="${(castle.y + forest.y) / 2 + 40}" style="font-size:14px;fill:rgba(255,122,195,.8);font-style:italic" text-anchor="middle">путь побега</text>` : ''}`;
+  // рисунок → картинка один раз (рельеф не живёт в DOM и не перерисовывается при анимациях)
+  const img = $('#map-art');
+  const url = URL.createObjectURL(new Blob([art.svg], { type: 'image/svg+xml' }));
+  img.onload = () => (img.decode ? img.decode() : Promise.resolve()).catch(() => {}).then(() => wrap.classList.add('ready'));
+  img.src = url;
 
-  const panel = $('#map-panel');
+  // путь побега — отдельный лёгкий слой, прорисовывается при появлении карты
+  const d = CodexMap.poly(art.route);
+  $('#map-route').innerHTML = `
+    <defs><mask id="route-mask" maskUnits="userSpaceOnUse"><path class="route-draw" d="${d}" pathLength="1" stroke="#fff" stroke-width="16" fill="none" stroke-linecap="round"/></mask></defs>
+    <g mask="url(#route-mask)" fill="none" stroke-linecap="round">
+      <path d="${d}" stroke="#ff2d95" stroke-opacity=".22" stroke-width="12"/>
+      <path d="${d}" stroke="#ff7ac3" stroke-width="3.2" stroke-dasharray="11 8"/>
+    </g>`;
+
+  // подписи (HTML — чтобы был фирменный шрифт)
+  const mid = art.route[Math.floor(art.route.length * .45)];
+  const labels = [
+    ['map-title', 250, H - 121, 'Королевство Элронда'],
+    ['map-region', 300, 288, 'Северный хребет'],
+    ['map-region', art.dark.x, art.dark.y - 112, 'Тёмная чаща'],
+    ['map-region small river', art.bridge.x + 56, art.bridge.y - 240, 'река'],
+    ['map-north', W - 140, 40, 'С'],
+    ['map-note', art.trap.x, art.trap.y + 30, 'Здесь Айла спасла Ильви из капкана'],
+    ['map-note', art.dark.x + 10, art.dark.y + 66, 'Изба на курьих ногах · «След в след»'],
+    ['map-note hot', mid[0] - 70, mid[1] - 18, 'Путь побега · ночь бойни']
+  ];
+  $('#map-labels').innerHTML = labels.map(([c, x, y, t]) => `<span class="${c}" style="${pct(x, y)}">${esc(t)}</span>`).join('');
+  $('#map-pins').innerHTML = D.locations.map((l, i) => l.map ? `
+    <button class="map-pin" data-loc="${i}" style="${pct(l.map.x, l.map.y)}" aria-label="${esc(l.title)}">
+      <span class="pin-ring"></span><span class="pin-dot"></span><span class="pin-name">${esc(l.title)}</span>
+    </button>` : '').join('');
+
+  const panel = $('#map-panel'), reset = $('#map-reset');
+  // панель выезжает с противоположной от метки стороны, чтобы не закрывать то, что выбрали
   const show = i => {
     const l = D.locations[i];
-    $$('.pin').forEach(p => p.classList.toggle('active', +p.dataset.loc === i));
+    panel.classList.toggle('left', !narrow() && l.map && l.map.x / W > .55);
+    panel.classList.add('on');
+    if (Map2.sel === i) return;
+    Map2.sel = i;
+    $$('.map-pin').forEach(p => p.classList.toggle('active', +p.dataset.loc === i));
     panel.classList.remove('swap'); void panel.offsetWidth; panel.classList.add('swap');
-    panel.innerHTML = `<div class="mp-img">${media(l, '', 'play')}</div><p class="kicker" style="margin-top:14px">Локация</p><h3>${esc(l.title)}</h3><p>${esc(l.text)}</p><button class="btn" ${openAttr(l)}>Открыть в кодексе</button>`;
+    panel.innerHTML = `<div class="mp-img">${media(l, '', 'play', SIZES.panel)}</div><p class="kicker" style="margin-top:14px">Локация</p><h3>${esc(l.title)}</h3><p>${esc(l.text)}</p><button class="btn" ${openAttr(l)}>Открыть в кодексе</button>`;
   };
-  $$('.pin').forEach(p => {
-    const go = () => show(+p.dataset.loc);
-    p.addEventListener('click', go);
-    p.addEventListener('pointerenter', () => fine && go());
-    p.addEventListener('keydown', e => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), go()));
+  // «камера»: подлетает к локации (ПК) или прокручивает карту к ней (телефон)
+  const focus = i => {
+    const p = D.locations[i].map; if (!p) return;
+    show(i);
+    if (narrow()) { stage.scrollTo({ left: p.x / W * world.offsetWidth - stage.clientWidth / 2, behavior: 'smooth' }); return; }
+    const sw = stage.clientWidth, sh = stage.clientHeight, k = 1.75, pw = panel.offsetWidth + 40;
+    const cx = panel.classList.contains('left') ? pw + (sw - pw) / 2 : (sw - pw) / 2; // центр свободной от панели части
+    const tx = clamp(cx - p.x / W * sw * k, sw - sw * k, 0), ty = clamp(sh / 2 - p.y / H * sh * k, sh - sh * k, 0);
+    world.style.transform = `translate3d(${tx.toFixed(1)}px, ${ty.toFixed(1)}px, 0) scale(${k})`;
+    wrap.classList.add('zoomed'); reset.hidden = false;
+  };
+  const unfocus = () => {
+    world.style.transform = ''; wrap.classList.remove('zoomed'); reset.hidden = true;
+    if (!narrow()) { panel.classList.remove('on'); $$('.map-pin').forEach(p => p.classList.remove('active')); Map2.sel = -1; }
+  };
+  $$('.map-pin').forEach(p => {
+    // наведение только подсвечивает метку (CSS); панель — по клику, вместе с «камерой»,
+    // иначе всплывающая панель закрывала соседние метки
+    p.addEventListener('click', e => { e.stopPropagation(); focus(+p.dataset.loc); });
   });
-  show(0);
+  stage.addEventListener('click', e => { if (!e.target.closest('.map-pin') && (wrap.classList.contains('zoomed') || panel.classList.contains('on'))) unfocus(); });
+  reset.addEventListener('click', unfocus);
+  addEventListener('keydown', e => e.key === 'Escape' && wrap.classList.contains('zoomed') && entry.el.hidden && unfocus());
+
+  // лёгкий наклон карты за курсором (только transform)
+  if (fine && !reduce) {
+    const tilt = $('#map-tilt'); let raf = 0, ev;
+    stage.addEventListener('pointermove', e => {
+      ev = e; if (raf) return;
+      raf = requestAnimationFrame(() => {
+        raf = 0; const r = stage.getBoundingClientRect();
+        const x = (ev.clientX - r.left) / r.width - .5, y = (ev.clientY - r.top) / r.height - .5;
+        tilt.style.transform = `rotateX(${(-y * 3).toFixed(2)}deg) rotateY(${(x * 4).toFixed(2)}deg)`;
+      });
+    }, { passive: true });
+    stage.addEventListener('pointerleave', () => { tilt.style.transform = ''; });
+  }
+  if (narrow()) show(0); // на ПК панель появляется по наведению на метку
+  // на телефоне стартуем с замка
+  requestAnimationFrame(() => { if (narrow() && L['Замок Элронда']) stage.scrollLeft = L['Замок Элронда'].x / W * world.offsetWidth - 60; });
 }
 
 /* ═══════════ Гадание ═══════════ */
 function initOracle() {
+  $('.oracle-portrait').innerHTML = imgTag('vorozheya.jpg', 'Ворожея', '(max-width: 900px) 260px, 380px');
   const box = $('#ocards'), again = $('#oracle-again');
   if (!D.prophecies?.length) { // раздел запечатан до выхода трека
     $('#oracle').classList.add('sealed');
     box.innerHTML = [0, 1, 2].map(i => `
       <button class="ocard" style="--i:${i}" aria-label="Карта запечатана">
-        <span class="ocard-face ocard-back"><svg><use href="#eye"/></svg><i class="ocard-lock"></i></span>
+        <span class="ocard-face ocard-back"><svg aria-hidden="true"><use href="#eye"/></svg><i class="ocard-lock"></i></span>
       </button>`).join('');
     const msg = $('#oracle-msg');
     box.addEventListener('click', e => {
@@ -516,7 +579,7 @@ function initOracle() {
     const pool = [...D.prophecies].sort(() => Math.random() - .5);
     box.innerHTML = [0, 1, 2].map(i => `
       <button class="ocard" style="--i:${i}" aria-label="Вытянуть карту ${i + 1}">
-        <span class="ocard-face ocard-back"><svg><use href="#eye"/></svg></span>
+        <span class="ocard-face ocard-back"><svg aria-hidden="true"><use href="#eye"/></svg></span>
         <span class="ocard-face ocard-front">${esc(pool[i])}</span>
       </button>`).join('');
   };
@@ -540,12 +603,12 @@ function initSongs() {
   $('#song-list').innerHTML = D.songs.map((s, i) => `
     <li class="song" data-i="${i}" ${openAttr(s)} tabindex="0">
       <span class="song-num">${ROMAN[i] || i + 1}</span>
-      <img class="song-thumb" src="${esc(s.img)}" alt="" loading="lazy">
+      <img class="song-thumb" src="${esc(best(s.img, 120))}" alt="" loading="lazy" decoding="async">
       <span><span class="song-title">${esc(s.title)}</span><span class="song-sub">${esc(s.text)}</span></span>
-      <span class="song-right">${s.clip ? '<span class="song-badge hot">Клип</span>' : ''}${s.lyrics ? '<span class="song-badge">Текст</span>' : ''}<span class="eq"><i></i><i></i><i></i><i></i></span>${s.preview ? `<button class="song-play" data-play="${esc(s.title)}" aria-label="Слушать отрывок «${esc(s.title)}»">▶</button>` : ''}</span>
+      <span class="song-right">${s.clip ? '<span class="song-badge hot">Клип</span>' : ''}${s.lyrics ? '<span class="song-badge">Текст</span>' : ''}<span class="eq" aria-hidden="true"><i></i><i></i><i></i><i></i></span>${s.preview ? `<button class="song-play" data-play="${esc(s.title)}" aria-label="Слушать отрывок «${esc(s.title)}»">▶</button>` : ''}</span>
     </li>`).join('');
   const sleeve = $('#sleeve'), label = $('#vinyl-label'), wrap = $('.songs');
-  const setCover = s => { sleeve.style.backgroundImage = `url("${s.img}")`; label.style.backgroundImage = `url("${s.img}")`; };
+  const setCover = s => { const u = `url("${best(s.img, 480)}")`; sleeve.style.backgroundImage = u; label.style.backgroundImage = u; };
   setCover(D.songs[0]);
   $$('.song').forEach(row => {
     row.addEventListener('pointerenter', () => { setCover(D.songs[row.dataset.i]); wrap.classList.add('hovering'); });
@@ -561,12 +624,13 @@ function setPlaying(song) {
   playing = song;
   $$('.song').forEach(r => r.classList.toggle('playing', !!song && D.songs[r.dataset.i] === song));
   $$('[data-play]').forEach(b => {
-    const on = song && b.dataset.play === song.title, icon = b.classList.contains('song-play');
-    b.textContent = icon ? (on ? '❚❚' : '▶') : (on ? '❚❚ Пауза' : '▶ Слушать отрывок');
+    const on = song && b.dataset.play === song.title, ic = b.classList.contains('song-play');
+    b.textContent = ic ? (on ? '❚❚' : '▶') : (on ? '❚❚ Пауза' : '▶ Слушать отрывок');
   });
   const now = $('#now');
   now.classList.toggle('on', !!song);
-  if (song) $('#now-title').textContent = song.title;
+  if (song) { $('#now-title').textContent = song.title; $('#now-title').setAttribute('aria-label', `Открыть песню «${song.title}»`); }
+  beat.eq = song ? $('.song.playing .eq') : null;
 }
 function togglePlay(song) {
   if (playing === song) { player.pause(); setPlaying(null); return; }
@@ -577,7 +641,7 @@ function togglePlay(song) {
 }
 
 /* ── музыка управляет светом: бас → искры, неон, эквалайзер ── */
-const beat = { an: null, data: null, v: 0, prev: 0 };
+const beat = { an: null, data: null, v: 0, prev: 0, eq: null, bar: null };
 function initAnalyser() {
   if (beat.an) { beat.ctx.resume(); return; }
   if (location.protocol === 'file:') return; // с file:// Chrome глушит звук через анализатор — играем без подсветки
@@ -587,6 +651,7 @@ function initAnalyser() {
     beat.an = ctx.createAnalyser(); beat.an.fftSize = 256; beat.an.smoothingTimeConstant = .7;
     src.connect(beat.an); beat.an.connect(ctx.destination);
     beat.data = new Uint8Array(beat.an.frequencyBinCount);
+    beat.bar = $('#now-bar');
   } catch { /* без анализатора просто играет */ }
 }
 function tickBeat() {
@@ -598,19 +663,19 @@ function tickBeat() {
   beat.avg = beat.avg == null ? bass : beat.avg + (bass - beat.avg) * (beat.n < 90 ? .2 : .03); // адаптивный порог: вспышки на ударах, а не постоянный гул
   beat.v += (bass - beat.v) * .5;
   const v = clamp((beat.v - beat.avg) * 8);
-  document.documentElement.style.setProperty('--beat', v.toFixed(3));
+  document.documentElement.style.setProperty('--beat', v.toFixed(2));
   if (v - beat.prev > .22 && v > .55 && !reduce) for (let i = 0; i < 3; i++) Embers.burst(Math.random() * innerWidth, innerHeight + 5, 5);
   beat.prev = v;
-  const eq = $('.song.playing .eq');
-  if (eq) [band(1, 4), band(4, 12), band(12, 30), band(30, 70)].forEach((b, i) => eq.children[i].style.transform = `scaleY(${.15 + b * .95})`);
-  const pr = $('#now-bar'); if (pr && player.duration) pr.style.transform = `scaleX(${player.currentTime / player.duration})`;
+  if (beat.eq) [band(1, 4), band(4, 12), band(12, 30), band(30, 70)].forEach((b, i) => beat.eq.children[i].style.transform = `scaleY(${(.15 + b * .95).toFixed(2)})`);
+  if (beat.bar && player.duration) beat.bar.style.transform = `scaleX(${(player.currentTime / player.duration).toFixed(3)})`;
   return v;
 }
 
 /* ═══════════ Страница кодекса ═══════════ */
 const entry = { el: null, item: null };
 function crackSvg() {
-  const rnd = seeded(Math.floor(Math.random() * 1e6) + 1);
+  let n = Math.floor(Math.random() * 1e6) + 1;
+  const rnd = () => (n = (n * 16807) % 2147483647) / 2147483647;
   let d = '';
   const ox = 70 + rnd() * 20, oy = 20 + rnd() * 30;
   for (let i = 0; i < 7; i++) {
@@ -618,7 +683,7 @@ function crackSvg() {
     d += `M${x} ${y}`;
     for (let j = 0; j < 5; j++) { a += (rnd() - .5) * .9; x += Math.cos(a) * (6 + rnd() * 10); y += Math.sin(a) * (6 + rnd() * 10); d += `L${x.toFixed(1)} ${y.toFixed(1)}`; }
   }
-  return `<svg class="crack" viewBox="0 0 100 100" preserveAspectRatio="none"><path d="${d}" fill="none" stroke="rgba(255,122,195,.7)" stroke-width=".25" vector-effect="non-scaling-stroke" style="filter:drop-shadow(0 0 3px #ff2d95)"/></svg>`;
+  return `<svg class="crack" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><path d="${d}" fill="none" stroke="rgba(255,122,195,.75)" stroke-width=".3" vector-effect="non-scaling-stroke"/></svg>`;
 }
 function renderEntry(item) {
   const t = item.type, rel = links.get(item) || {};
@@ -627,10 +692,10 @@ function renderEntry(item) {
   const kicker = [ONE[t], FACTION[item.faction], item.role, item.year].filter(Boolean).map(esc).join(' · ');
   const listen = linkBtns(item.links) || (t === 'songs' ? linkBtns(D.links, undefined, ['yandex', 'vk']) : ''); // нет ссылки на трек — ведём на артиста
   $('#entry-body').innerHTML = `
-    <div class="entry-media">${item.img || item.video ? media(item, '', 'play') : '<div class="entry-noimg">?</div>'}${item.img ? crackSvg() : ''}</div>
+    <div class="entry-media">${item.img || item.video ? media(item, '', 'play', SIZES.entry) : '<div class="entry-noimg" aria-hidden="true">?</div>'}${item.img ? crackSvg() : ''}</div>
     <div class="entry-info">
       <p class="kicker" ${n()}>${kicker}</p>
-      <h2 ${n()}>${esc(item.title)}</h2>
+      <h2 ${n()} id="entry-title">${esc(item.title)}</h2>
       ${item.epithet ? `<p class="entry-ep" ${n()}>${esc(item.epithet)}</p>` : ''}
       ${item.quote ? `<blockquote class="entry-quote" ${n()}>${esc(item.quote)}</blockquote>` : ''}
       <p class="entry-text" ${n()}>${esc(item.text)}</p>
@@ -641,8 +706,9 @@ function renderEntry(item) {
         <div class="rel" ${n()}><h4>${TYPES[rt]}</h4><div class="chips">${[...rel[rt]].map(title => {
           const x = find(rt, title); return x ? `<button class="chip ${CHIP[rt]}" ${openAttr(x)}>${rt === 'songs' ? '♪ ' : ''}${esc(title)}</button>` : '';
         }).join('')}</div></div>`).join('')}
-      ${gallery.length > 1 ? `<div class="gal" ${n()}>${gallery.map(src => `<button data-full="${esc(src)}" aria-label="Открыть изображение"><img src="${esc(src)}" alt="" loading="lazy"></button>`).join('')}</div>` : ''}
+      ${gallery.length > 1 ? `<div class="gal" ${n()}>${gallery.map(src => `<button data-full="${esc(src)}" aria-label="Открыть изображение">${imgTag(src, '', SIZES.thumb)}</button>`).join('')}</div>` : ''}
     </div>`;
+  entry.el.setAttribute('aria-labelledby', 'entry-title');
   entry.el.scrollTop = 0;
 }
 function openEntry(item, x, y) {
@@ -655,10 +721,12 @@ function openEntry(item, x, y) {
     setTimeout(() => { renderEntry(item); body.classList.remove('swap'); restartAnim(); }, 300);
     return;
   }
+  entry.back = document.activeElement;
   renderEntry(item);
   el.style.setProperty('--cx', `${x ?? innerWidth / 2}px`);
   el.style.setProperty('--cy', `${y ?? innerHeight / 2}px`);
   el.hidden = false;
+  S.modal = true;
   document.documentElement.classList.add('modal');
   requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add('open')));
   $('#entry-close').focus({ preventScroll: true });
@@ -669,8 +737,10 @@ function closeEntry() {
   if (el.hidden) return;
   el.classList.remove('open');
   document.documentElement.classList.remove('modal');
+  S.modal = false; S.dirty = true;
   $$('video', el).forEach(v => v.pause());
-  setTimeout(() => { if (!el.classList.contains('open')) el.hidden = true; }, 900);
+  entry.back?.focus?.({ preventScroll: true });
+  setTimeout(() => { if (!el.classList.contains('open')) { el.hidden = true; $('#entry-body').innerHTML = ''; } }, 900);
 }
 function stepEntry(d) {
   const list = D[entry.item.type];
@@ -687,7 +757,7 @@ function initEntry() {
 /* ── лайтбокс ── */
 function openFull(src) {
   const lb = $('#lightbox');
-  $('img', lb).src = src;
+  $('img', lb).src = best(src, 4000);
   lb.hidden = false;
 }
 $('#lightbox').addEventListener('click', e => e.currentTarget.hidden = true);
@@ -733,28 +803,31 @@ const Embers = (() => {
   const cv = $('#embers'), ctx = cv.getContext('2d');
   let W, H, parts = [];
   const COLORS = { ember: [[255, 150, 60], [255, 190, 110], [255, 45, 149]], blood: [[220, 30, 50], [150, 10, 30], [255, 90, 70]], violet: [[165, 140, 255], [220, 200, 255], [255, 122, 195]] };
+  // цвета заранее строками — без мусора в каждом кадре
+  const PAL = Object.fromEntries(Object.entries(COLORS).map(([k, list]) => [k, list.map(([r, g, b]) => [`rgb(${r},${g},${b})`, `rgb(${Math.min(255, r + 60)},${Math.min(255, g + 60)},${Math.min(255, b + 60)})`])]));
   const resize = () => {
-    const dpr = Math.min(2, devicePixelRatio || 1);
+    // искры — мягкие пятна, им не нужна ретина: 1–1.25 пикселя на точку в 2–4 раза дешевле
+    const dpr = Math.min(fine ? 1.25 : 1, devicePixelRatio || 1);
     W = innerWidth; H = innerHeight;
-    cv.width = W * dpr; cv.height = H * dpr;
+    cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   };
   const spawn = (x, y, o = {}) => {
-    const pal = COLORS[o.pal || 'ember'];
+    const pal = PAL[o.pal || 'ember'];
     parts.push({
       x, y, vx: o.vx ?? (Math.random() - .5) * .4, vy: o.vy ?? -(.3 + Math.random() * .9),
       life: 0, max: o.max ?? 220 + Math.random() * 260, size: o.size ?? .6 + Math.random() * 1.8,
       seed: Math.random() * 100, c: pal[Math.floor(Math.random() * pal.length)], ambient: !!o.ambient
     });
   };
-  let lastX = 0, lastY = 0, heat = 0;
+  let lastX = 0, lastY = 0, heat = 0, amb = 0;
   if (fine) addEventListener('pointermove', e => {
     const d = Math.hypot(e.clientX - lastX, e.clientY - lastY);
-    if (d > 14 && parts.length < 400) {
+    if (d > 14 && parts.length < 300) {
       spawn(e.clientX, e.clientY, { vx: (Math.random() - .5) * .6, vy: -.2 - Math.random() * .6, max: 50 + Math.random() * 40, size: .5 + Math.random() * 1.2 });
       lastX = e.clientX; lastY = e.clientY;
     }
-  });
+  }, { passive: true });
   addEventListener('resize', resize); resize();
   return {
     set heat(v) { heat = v; },
@@ -767,86 +840,108 @@ const Embers = (() => {
     },
     tick(t) {
       if (reduce) return;
-      const target = (W < 700 ? 26 : 55) * (1 + heat * 1.5);
-      let amb = 0; for (const p of parts) if (p.ambient) amb++;
+      const target = (W < 700 ? 22 : 50) * (1 + heat * 1.5);
       if (amb < target && Math.random() < .5) spawn(Math.random() * W, H + 10, { ambient: true, pal: heat > .3 && Math.random() < heat ? 'blood' : 'ember' });
       ctx.clearRect(0, 0, W, H);
       ctx.globalCompositeOperation = 'lighter';
-      parts = parts.filter(p => p.life < p.max && p.y > -20);
-      for (const p of parts) {
+      let alive = 0; amb = 0;
+      for (let i = 0; i < parts.length; i++) {
+        const p = parts[i];
         p.life++;
+        if (p.life >= p.max || p.y < -20) continue;
+        parts[alive++] = p;
+        if (p.ambient) amb++;
         p.vx += Math.sin(t / 700 + p.seed) * .012;
         if (!p.ambient) { p.vx *= .965; p.vy = p.vy * .965 - .02; } else p.vy -= .002;
         p.x += p.vx; p.y += p.vy;
         const k = p.life / p.max, a = (k < .1 ? k * 10 : 1 - (k - .1) / .9) * (.6 + Math.sin(t / 60 + p.seed) * .4);
-        const [r, g, b] = p.c;
-        ctx.fillStyle = `rgba(${r},${g},${b},${a * .18})`;
-        ctx.beginPath(); ctx.arc(p.x, p.y, p.size * 4, 0, 7); ctx.fill();
-        ctx.fillStyle = `rgba(${Math.min(255, r + 60)},${Math.min(255, g + 60)},${Math.min(255, b + 60)},${a})`;
-        ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, 7); ctx.fill();
+        ctx.globalAlpha = a * .18; ctx.fillStyle = p.c[0];
+        ctx.beginPath(); ctx.arc(p.x, p.y, p.size * 4, 0, 6.283); ctx.fill();
+        ctx.globalAlpha = a; ctx.fillStyle = p.c[1];
+        ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, 6.283); ctx.fill();
       }
+      parts.length = alive;
+      ctx.globalAlpha = 1;
     }
   };
 })();
 
 /* ═══════════ Курсор ═══════════ */
-const cur = { x: -100, y: -100, rx: -100, ry: -100 };
+const cur = { x: -100, y: -100, rx: -100, ry: -100, dot: $('.cursor-dot'), ring: $('.cursor-ring') };
 if (fine) {
-  const ring = $('.cursor-ring');
   addEventListener('pointermove', e => {
     cur.x = e.clientX; cur.y = e.clientY;
     document.documentElement.classList.add('moved');
-    ring.classList.toggle('big', !!e.target.closest?.('a, button, [data-open], .pin, .ocard'));
-  });
+    const big = !!e.target.closest?.('a, button, [data-open], .ocard');
+    if (big !== cur.big) { cur.big = big; cur.ring.classList.toggle('big', big); }
+  }, { passive: true });
   document.addEventListener('pointerleave', () => document.documentElement.classList.remove('moved'));
 }
 function tickCursor() {
   if (!fine) return;
-  cur.rx += (cur.x - cur.rx) * .18; cur.ry += (cur.y - cur.ry) * .18;
-  $('.cursor-dot').style.transform = `translate3d(${cur.x}px, ${cur.y}px, 0)`;
-  $('.cursor-ring').style.transform = `translate3d(${cur.rx}px, ${cur.ry}px, 0)`;
+  const dx = cur.x - cur.rx, dy = cur.y - cur.ry;
+  if (Math.abs(dx) < .1 && Math.abs(dy) < .1 && cur.drawn === cur.x + cur.y) return; // курсор стоит — не пишем стили
+  cur.rx += dx * .18; cur.ry += dy * .18; cur.drawn = cur.x + cur.y;
+  cur.dot.style.transform = `translate3d(${cur.x}px, ${cur.y}px, 0)`;
+  cur.ring.style.transform = `translate3d(${cur.rx.toFixed(1)}px, ${cur.ry.toFixed(1)}px, 0)`;
 }
 
-/* ═══════════ Скролл-механики ═══════════ */
+/* ═══════════ Скролл-механики ═══════════
+   Позиции секций меряем только при изменении размеров (measure), а в кадре — одна арифметика от scrollY. */
+let prog = [];
+const els = {};
+function measure() {
+  S.vh = innerHeight;
+  sizeChronicle();
+  prog = $$('[data-progress]').map(el => ({ el, top: el.getBoundingClientRect().top + scrollY, h: el.offsetHeight, p: -1, id: el.id, blood: el.classList.contains('scene-blood') }));
+  S.max = Math.max(1, document.documentElement.scrollHeight - S.vh);
+  S.dirty = true;
+}
 function tickScroll() {
-  const vh = innerHeight;
-  $('#nav').classList.toggle('scrolled', scrollY > 40);
-  const max = document.documentElement.scrollHeight - vh;
-  $('.fuse').style.setProperty('--p', max > 0 ? scrollY / max : 0);
-
+  const y = S.y, vh = S.vh;
+  const scrolled = y > 40;
+  if (scrolled !== S.scrolled) { S.scrolled = scrolled; els.nav.classList.toggle('scrolled', scrolled); }
+  els.fuse.style.setProperty('--p', (y / S.max).toFixed(4));
   let heat = 0;
-  for (const el of $$('[data-progress]')) {
-    const r = el.getBoundingClientRect();
-    if (r.bottom < -vh || r.top > vh * 2) continue;
-    const p = clamp(-r.top / Math.max(1, r.height - vh));
-    if (Math.abs((el._p ?? -1) - p) > .001) { el._p = p; el.style.setProperty('--p', p.toFixed(4)); }
-    if (el.classList.contains('scene-blood') && r.top < vh && r.bottom > 0) heat = Math.max(heat, Math.sin(p * Math.PI));
-    if (el.id === 'prologue' && proWords.length) {
+  for (const s of prog) {
+    if (y + vh < s.top - vh * .2 || y > s.top + s.h) continue;
+    const p = clamp((y - s.top) / Math.max(1, s.h - vh));
+    if (Math.abs(s.p - p) < .0005) { if (s.blood) heat = Math.max(heat, Math.sin(p * Math.PI)); continue; }
+    s.p = p;
+    s.el.style.setProperty('--p', p.toFixed(4));
+    if (s.blood) heat = Math.max(heat, Math.sin(p * Math.PI));
+    if (s.id === 'prologue' && proWords.length) {
       const lit = Math.floor(clamp(p * 1.25) * proWords.length);
-      if (lit !== proLit) { proWords.forEach((w, i) => w.classList.toggle('lit', i < lit)); proLit = lit; }
+      if (lit !== proLit) { const lo = Math.min(lit, proLit), hi = Math.max(lit, proLit); for (let i = Math.max(0, lo); i < Math.min(proWords.length, hi); i++) proWords[i].classList.toggle('lit', i < lit); proLit = lit; }
     }
-    if (el.id === 'chronicle') $('#chron-track').style.transform = `translate3d(${-p * (el._extra || 0)}px,0,0)`;
+    if (s.id === 'chronicle') els.track.style.transform = `translate3d(${(-p * (s.el._extra || 0)).toFixed(1)}px,0,0)`;
   }
-  Embers.heat = Math.max(heat, tickBeat() * .9);
+  S.heat = heat;
 }
 
-/* ═══════════ Навигация + появление ═══════════ */
+/* ═══════════ Навигация, появление, пауза анимаций вне экрана ═══════════ */
 function initObservers() {
   const io = new IntersectionObserver(es => es.forEach(e => { if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); } }), { threshold: .15 });
   $$('[data-reveal], .map-wrap').forEach(el => io.observe(el));
-  const links = $$('.nav-links a');
+  const navLinks = $$('.nav-links a'), strip = $('.nav-links');
   const navIo = new IntersectionObserver(es => es.forEach(e => {
     if (!e.isIntersecting) return;
-    links.forEach(a => {
+    navLinks.forEach(a => {
       const on = a.getAttribute('href') === '#' + e.target.id;
       a.classList.toggle('active', on);
-      if (on) a.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+      if (on) a.setAttribute('aria-current', 'true'); else a.removeAttribute('aria-current');
+      // прокручиваем только полоску меню (scrollIntoView мог дёргать саму страницу)
+      if (on && strip.scrollWidth > strip.clientWidth) strip.scrollTo({ left: a.offsetLeft - strip.clientWidth / 2 + a.offsetWidth / 2, behavior: 'smooth' });
     });
   }), { rootMargin: '-45% 0px -50% 0px' });
-  links.forEach(a => { const s = $(a.getAttribute('href')); s && navIo.observe(s); });
+  navLinks.forEach(a => { const s = $(a.getAttribute('href')); s && navIo.observe(s); });
+  // бесконечные CSS-анимации (пластинка, «дыхание» картинок, карты) ставим на паузу, когда секции не видно
+  const offIo = new IntersectionObserver(es => es.forEach(e => e.target.classList.toggle('off', !e.isIntersecting)), { rootMargin: '100px 0px' });
+  $$('#hero, #chronicle, .scene, #map, #oracle, #songs, .finale').forEach(el => offIo.observe(el));
 }
 
 /* ═══════════ Старт ═══════════ */
+els.nav = $('#nav'); els.fuse = $('.fuse'); els.track = $('#chron-track');
 initSplash(); initHero(); initPrologue(); initCharacters(); initChronicle(); initEvents(); initMap(); initOracle(); initSongs(); initEntry(); initObservers();
 watchVideos();
 $('#year').textContent = new Date().getFullYear();
@@ -854,10 +949,26 @@ $('#finale-links').innerHTML = linkBtns(D.links);
 $('#songs-links').innerHTML = linkBtns(D.links, undefined, ['yandex', 'vk']);
 $('#nav-social').innerHTML = Object.keys(LINK_NAMES).filter(k => D.links?.[k] && k !== 'vk')
   .map(k => `<a href="${esc(D.links[k])}" target="_blank" rel="noopener" aria-label="${LINK_NAMES[k]}" title="${LINK_NAMES[k]}">${icon(k)}</a>`).join('');
-addEventListener('resize', sizeChronicle);
-addEventListener('load', sizeChronicle);
+
+let mRaf = 0;
+const remeasure = () => { cancelAnimationFrame(mRaf); mRaf = requestAnimationFrame(measure); };
+addEventListener('resize', remeasure);
+addEventListener('load', remeasure);
+document.fonts?.ready.then(remeasure);
+new ResizeObserver(remeasure).observe($('main'));
+addEventListener('scroll', () => { S.dirty = true; }, { passive: true });
+measure();
+
 (function loop(t) {
-  tickScroll(); tickHero(); tickTorch(t); tickCursor(); Embers.tick(t);
+  const y = scrollY;
+  if (y !== S.y) { S.y = y; S.dirty = true; }
+  if (!S.modal) {
+    if (S.dirty) { tickScroll(); S.dirty = false; }
+    tickHero(); tickTorch(t);
+    Embers.heat = Math.max(S.heat, tickBeat() * .9);
+    Embers.tick(t);
+  } else tickBeat();
+  tickCursor();
   requestAnimationFrame(loop);
 })(0);
 })();

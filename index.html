@@ -6,11 +6,16 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="description" content="Кодекс группы «Осколки хаоса»: лор, персонажи, хроника, локации и песни.">
   <meta name="theme-color" content="#07060a">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Осколки хаоса — Кодекс">
+  <meta property="og:description" content="Тёмный паган-фолк-рок. Лор, персонажи, хроника, карта земель и песни.">
+  <meta property="og:image" content="opt/cover-784.webp">
+  <meta name="twitter:card" content="summary_large_image">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%2307060a'/%3E%3Cpath d='M12 44 L8 20 L21 31 L32 12 L43 31 L56 20 L52 44 Z' fill='none' stroke='%23ff2d95' stroke-width='4' stroke-linejoin='round'/%3E%3C/svg%3E">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400&family=Cormorant+Unicase:wght@500;700&family=Marck+Script&family=Spectral:ital,wght@0,300;0,400;1,300&display=swap" rel="stylesheet">
-  <link rel="preload" as="image" href="cover.jpg">
+  <link rel="preload" as="image" href="opt/cover-784.webp" imagesrcset="opt/cover-480.webp 480w, opt/cover-784.webp 784w" imagesizes="(max-width: 900px) 100vw, 40vw" fetchpriority="high">
   <link rel="stylesheet" href="style.css">
 </head>
 <body class="locked">
@@ -86,10 +91,10 @@
       <h2 class="sec-title">Те, кто <em>выжил</em>,<br>и те, кто убивал</h2>
     </header>
     <div class="filters" id="filters" data-reveal>
-      <button class="active" data-f="all">Все</button>
-      <button data-f="otryad">Отряд</button>
-      <button data-f="dvor">Двор</button>
-      <button data-f="teni">Тени</button>
+      <button class="active" data-f="all" aria-pressed="true">Все</button>
+      <button data-f="otryad" aria-pressed="false">Отряд</button>
+      <button data-f="dvor" aria-pressed="false">Двор</button>
+      <button data-f="teni" aria-pressed="false">Тени</button>
     </div>
     <div class="cards" id="cards"></div>
   </section>
@@ -125,17 +130,27 @@
       <h2 class="sec-title">Земли <em>Элронда</em></h2>
     </header>
     <div class="map-wrap" data-reveal>
-      <svg class="map" id="map-svg" viewBox="0 0 1000 620" role="img" aria-label="Карта земель"></svg>
-      <aside class="map-panel" id="map-panel"></aside>
+      <div class="map-stage" id="map-stage">
+        <div class="map-tilt" id="map-tilt">
+          <div class="map-world" id="map-world">
+            <img class="map-art" id="map-art" alt="Карта земель Элронда: горы, замок, лес, река, деревня с таверной и Тёмная чаща" width="1600" height="1000">
+            <svg class="map-route" id="map-route" viewBox="0 0 1600 1000" preserveAspectRatio="none" aria-hidden="true"></svg>
+            <div class="map-fog f1" aria-hidden="true"></div><div class="map-fog f2" aria-hidden="true"></div>
+            <div class="map-labels" id="map-labels" aria-hidden="true"></div>
+            <div class="map-pins" id="map-pins"></div>
+          </div>
+        </div>
+      </div>
+      <button class="map-reset" id="map-reset" hidden>↺ Вся карта</button>
+      <aside class="map-panel" id="map-panel" aria-live="polite"></aside>
+      <p class="map-tip"><span class="tip-pc">Нажми на метку — карта приблизит локацию</span><span class="tip-touch">Листай карту пальцем · нажми на метку</span></p>
     </div>
   </section>
 
   <!-- ═══ Гадание ═══ -->
   <section class="sec oracle-sec" id="oracle">
     <div class="oracle">
-      <div class="oracle-portrait" data-reveal>
-        <img src="vorozheya.jpg" alt="Ворожея" loading="lazy">
-      </div>
+      <div class="oracle-portrait" data-reveal></div>
       <div class="oracle-side">
         <header data-reveal>
           <span class="sec-num">V</span>
@@ -188,7 +203,7 @@
 
 <div class="now" id="now" aria-live="polite">
   <span class="now-disc"></span>
-  <button class="now-title" id="now-title"></button>
+  <button class="now-title" id="now-title" aria-label="Открыть песню"></button>
   <button class="now-toggle" id="now-toggle" aria-label="Пауза">❚❚</button>
   <i class="now-bar" id="now-bar"></i>
 </div>
@@ -215,6 +230,8 @@
 </svg>
 
 <script src="data.js"></script>
+<script src="opt/manifest.js"></script>
+<script src="map.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
