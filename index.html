@@ -9,6 +9,7 @@
     * { box-sizing: border-box; }
     body { margin: 0; background: #080706; color: #ebe4da; font-family: 'Spectral', serif; }
     body::before { content: ''; position: fixed; inset: 0; background: radial-gradient(circle at 15% 25%, rgba(90,25,45,0.22) 0%, transparent 42%), radial-gradient(circle at 85% 75%, rgba(50,18,35,0.16) 0%, transparent 48%); pointer-events: none; z-index: -1; }
+    body.modal-open { overflow: hidden; }
     .splash { position: fixed; inset: 0; background: radial-gradient(ellipse at center, #12080c 0%, #050403 70%); display: flex; align-items: center; justify-content: center; text-align: center; z-index: 1000; transition: opacity 1s ease; }
     .splash.hide { opacity: 0; pointer-events: none; }
     .splash h1 { font-family: 'Cormorant Garamond', serif; font-weight: 700; font-size: clamp(44px, 10vw, 86px); margin: 0; letter-spacing: 7px; }
@@ -32,42 +33,9 @@
     .timeline::before { content: ''; position: absolute; left: 16px; top: 0; bottom: 0; width: 1px; background: #ff2d95; }
     .timeline-item { position: relative; padding-left: 44px; margin-bottom: 22px; }
     .timeline-item::before { content: ''; position: absolute; left: 9px; top: 14px; width: 14px; height: 14px; background: #ff2d95; border-radius: 50%; }
-    .timeline-card { 
-      background: rgba(18,13,15,0.75); 
-      padding: 22px 16px 14px; 
-      border-radius: 8px; 
-      border: 1px solid #322428; 
-      cursor: pointer; 
-      position: relative;
-      overflow: hidden;
-    }
-    .timeline-card::before {
-      content: '';
-      position: absolute;
-      top: 0; left: 0; right: 0;
-      height: 36px;
-      background: 
-        radial-gradient(ellipse at 15% -10%, rgba(30,60,28,0.5) 0%, transparent 60%),
-        radial-gradient(ellipse at 45% -5%, rgba(40,75,35,0.35) 0%, transparent 55%),
-        radial-gradient(ellipse at 75% -8%, rgba(25,55,30,0.45) 0%, transparent 50%),
-        linear-gradient(to bottom, rgba(20,40,18,0.25), transparent 70%);
-      pointer-events: none;
-      z-index: 1;
-    }
-    .timeline-card::after {
-      content: '';
-      position: absolute;
-      top: -2px;
-      left: 0;
-      right: 0;
-      height: 32px;
-      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 40' preserveAspectRatio='none'%3E%3Cpath d='M-10 22 C40 8, 80 28, 120 18 S200 6, 240 20 S320 32, 360 16 S420 10, 440 22' stroke='%232d4a28' stroke-width='3.5' fill='none' stroke-linecap='round' opacity='0.9'/%3E%3Cpath d='M-10 22 C40 8, 80 28, 120 18 S200 6, 240 20 S320 32, 360 16 S420 10, 440 22' stroke='%231a2e16' stroke-width='5' fill='none' stroke-linecap='round' opacity='0.4' transform='translate(1,2)'/%3E%3Cpath d='M20 24 C60 12, 100 26, 140 16 S210 8, 250 22' stroke='%234a7a3c' stroke-width='1.8' fill='none' opacity='0.7'/%3E%3Cpath d='M60 20 C90 30, 110 14, 150 22 S190 28, 220 18' stroke='%23355c2e' stroke-width='1.2' fill='none' opacity='0.55'/%3E%3C/svg%3E");
-      background-size: 100% 100%;
-      background-repeat: no-repeat;
-      pointer-events: none;
-      z-index: 2;
-      filter: drop-shadow(0 2px 2px rgba(0,0,0,0.6));
-    }
+    .timeline-card { background: rgba(18,13,15,0.75); padding: 22px 16px 14px; border-radius: 8px; border: 1px solid #322428; cursor: pointer; position: relative; overflow: hidden; }
+    .timeline-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 36px; background: radial-gradient(ellipse at 15% -10%, rgba(30,60,28,0.5) 0%, transparent 60%), radial-gradient(ellipse at 45% -5%, rgba(40,75,35,0.35) 0%, transparent 55%), radial-gradient(ellipse at 75% -8%, rgba(25,55,30,0.45) 0%, transparent 50%); pointer-events: none; z-index: 1; }
+    .timeline-card::after { content: ''; position: absolute; top: -2px; left: 0; right: 0; height: 32px; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 40' preserveAspectRatio='none'%3E%3Cpath d='M-10 22 C40 8, 80 28, 120 18 S200 6, 240 20 S320 32, 360 16 S420 10, 440 22' stroke='%232d4a28' stroke-width='3.5' fill='none' opacity='0.9'/%3E%3Cpath d='M-10 22 C40 8, 80 28, 120 18 S200 6, 240 20 S320 32, 360 16 S420 10, 440 22' stroke='%231a2e16' stroke-width='5' fill='none' opacity='0.4' transform='translate(1,2)'/%3E%3C/svg%3E"); background-size: 100% 100%; pointer-events: none; z-index: 2; filter: drop-shadow(0 2px 2px rgba(0,0,0,0.6)); }
     .song-link { color: #ff7ac3; cursor: pointer; text-decoration: underline; }
     .related { margin-top: 18px; }
     .related h4 { font-family: 'Cormorant Garamond', serif; margin: 12px 0 6px; color: #ff7ac3; font-size: 16px; }
@@ -75,13 +43,13 @@
     .related-item:hover { background: rgba(255,45,149,0.2); }
     .modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.93); z-index: 100; align-items: center; justify-content: center; padding: 10px; }
     .modal.active { display: flex; }
-    .modal-content { background: #110d0f; width: 100%; max-width: 1020px; max-height: 90vh; overflow-y: auto; border-radius: 10px; display: grid; grid-template-columns: 1fr; gap: 16px; padding: 16px 16px 68px; position: relative; }
+    .modal-content { background: #110d0f; width: 100%; max-width: 1020px; max-height: 90vh; overflow-y: auto; border-radius: 10px; display: grid; grid-template-columns: 1fr; gap: 16px; padding: 16px; position: relative; }
     @media (min-width: 780px) { .modal-content { grid-template-columns: 380px 1fr; } }
     .modal-image { width: 100%; max-height: 56vh; object-fit: cover; border-radius: 8px; }
     .modal-info h2 { font-family: 'Cormorant Garamond', serif; font-size: 32px; margin: 0 0 10px; }
-    .gallery { display: flex; gap: 8px; overflow-x: auto; margin-top: 8px; grid-column: 1 / -1; }
-    .gallery img { height: 100px; border-radius: 5px; cursor: pointer; }
-    .close-btn { position: absolute; bottom: 12px; right: 12px; background: #1c1216; color: #fff; border: 1px solid #ff2d95; padding: 8px 20px; cursor: pointer; font-family: 'Cormorant Garamond', serif; }
+    .gallery { display: flex; gap: 8px; overflow-x: auto; margin-top: 12px; grid-column: 1 / -1; padding-bottom: 8px; }
+    .gallery img { height: 100px; border-radius: 5px; cursor: pointer; flex-shrink: 0; }
+    .close-btn { grid-column: 1 / -1; justify-self: center; margin-top: 8px; background: #1c1216; color: #fff; border: 1px solid #ff2d95; padding: 10px 28px; cursor: pointer; font-family: 'Cormorant Garamond', serif; border-radius: 4px; }
     .fullscreen { display: none; position: fixed; inset: 0; background: #000; z-index: 200; align-items: center; justify-content: center; }
     .fullscreen.active { display: flex; }
     .fullscreen img { max-width: 96vw; max-height: 96vh; object-fit: contain; }
@@ -146,7 +114,7 @@ const data = {
   ],
   events: [
     { title: "Багровая бойня", text: "Центральное событие истории. Визиус убивает брата и почти всю его семью на пиру. Выживают только Айла, Мири и те, кто успел их вывести.", img: "battle.jpg" },
-    { title: "Побег через кузницу", text: "Вулкан, зная тайные ходы из недр замка, выводит девочек в лес. Ильви встречает их и уводит дальше от погони.", img: "out.jpg" },
+    { title: "Побег через кузницу", text: "Вулкан, зная тайные ходы из недр замка, выводит девочек в лес. Ильви встречает их и уводит дальше от погони.", img: "forest.jpg" },
     { title: "Письмо Визиусу", text: "Момент из песни «Корона горит». Айла и Мири прямо объявляют дяде, что идут за ним.", img: "letter.jpg" }
   ],
   locations: [
@@ -206,6 +174,7 @@ function showSection(section) {
 }
 
 function openModal(item) {
+  document.body.classList.add('modal-open');
   document.getElementById('modal-title').textContent = item.title;
   document.getElementById('modal-text').textContent = item.text || '';
   document.getElementById('modal-main-image').src = item.img || '';
@@ -233,8 +202,9 @@ function openModal(item) {
 
   const gallery = document.getElementById('modal-gallery');
   gallery.innerHTML = '';
-  const images = item.gallery && item.gallery.length ? item.gallery : (item.img ? [item.img] : []);
+  const images = (item.gallery && item.gallery.length) ? item.gallery : (item.img ? [item.img] : []);
   images.forEach(src => {
+    if (!src) return;
     const img = document.createElement('img');
     img.src = src;
     img.onclick = () => openFullscreen(src);
@@ -253,6 +223,7 @@ function openByTitle(type, title) {
 }
 
 function closeModal() {
+  document.body.classList.remove('modal-open');
   document.getElementById('modal').classList.remove('active');
 }
 function openFullscreen(src) {
