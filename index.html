@@ -4,239 +4,217 @@
   <meta charset="utf-8">
   <title>Осколки хаоса — Кодекс</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <style>
-    @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Spectral:wght@400;500&display=swap');
-    * { box-sizing: border-box; }
-    body { margin: 0; background: #080706; color: #ebe4da; font-family: 'Spectral', serif; }
-    body::before { content: ''; position: fixed; inset: 0; background: radial-gradient(circle at 15% 25%, rgba(90,25,45,0.22) 0%, transparent 42%), radial-gradient(circle at 85% 75%, rgba(50,18,35,0.16) 0%, transparent 48%); pointer-events: none; z-index: -1; }
-    body.modal-open { overflow: hidden; }
-    .splash { position: fixed; inset: 0; background: radial-gradient(ellipse at center, #12080c 0%, #050403 70%); display: flex; align-items: center; justify-content: center; text-align: center; z-index: 1000; transition: opacity 1s ease; }
-    .splash.hide { opacity: 0; pointer-events: none; }
-    .splash h1 { font-family: 'Cormorant Garamond', serif; font-weight: 700; font-size: clamp(44px, 10vw, 86px); margin: 0; letter-spacing: 7px; }
-    .splash .neon { display: block; font-size: clamp(50px, 12vw, 100px); color: #ff2d95; text-shadow: 0 0 15px #ff2d95, 0 0 40px #ff2d95; letter-spacing: 9px; margin: -8px 0 0; }
-    .splash button { margin-top: 36px; font-family: 'Cormorant Garamond', serif; font-size: 17px; padding: 15px 46px; background: rgba(10,6,8,0.7); color: #fff; border: 1px solid #ff2d95; cursor: pointer; }
-    .site { opacity: 0; transition: opacity 0.7s; }
-    .site.visible { opacity: 1; }
-    header { padding: 26px 16px 2px; text-align: center; }
-    header h1 { font-family: 'Cormorant Garamond', serif; font-size: clamp(28px, 5vw, 42px); margin: 0; }
-    nav { display: flex; justify-content: center; gap: 2px; padding: 10px; flex-wrap: wrap; }
-    nav button { background: transparent; color: #b5a498; border: none; padding: 9px 13px; cursor: pointer; font-family: 'Cormorant Garamond', serif; font-size: 15.5px; }
-    nav button.active, nav button:hover { color: #ff8ac8; }
-    .intro { max-width: 640px; margin: 28px auto; padding: 32px; text-align: center; background: rgba(16,12,14,0.65); border: 1px solid rgba(255,45,149,0.15); border-radius: 12px; }
-    .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; padding: 12px; max-width: 1160px; margin: 0 auto; }
-    @media (min-width: 860px) { .grid { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 18px; } }
-    .card { position: relative; aspect-ratio: 3/4.6; overflow: hidden; cursor: pointer; border-radius: 8px; background: #140f12; border: 1px solid #2c2024; }
-    .card:hover { transform: translateY(-6px); }
-    .card img { width: 100%; height: 100%; object-fit: cover; }
-    .card h3 { position: absolute; bottom: 0; left: 0; right: 0; margin: 0; padding: 36px 10px 14px; background: linear-gradient(transparent, rgba(0,0,0,0.9)); font-family: 'Cormorant Garamond', serif; text-align: center; }
-    .timeline { max-width: 700px; margin: 20px auto; padding: 0 16px; position: relative; }
-    .timeline::before { content: ''; position: absolute; left: 16px; top: 0; bottom: 0; width: 1px; background: #ff2d95; }
-    .timeline-item { position: relative; padding-left: 44px; margin-bottom: 22px; }
-    .timeline-item::before { content: ''; position: absolute; left: 9px; top: 14px; width: 14px; height: 14px; background: #ff2d95; border-radius: 50%; }
-    .timeline-card { background: rgba(18,13,15,0.75); padding: 22px 16px 14px; border-radius: 8px; border: 1px solid #322428; cursor: pointer; position: relative; overflow: hidden; }
-    .timeline-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 36px; background: radial-gradient(ellipse at 15% -10%, rgba(30,60,28,0.5) 0%, transparent 60%), radial-gradient(ellipse at 45% -5%, rgba(40,75,35,0.35) 0%, transparent 55%), radial-gradient(ellipse at 75% -8%, rgba(25,55,30,0.45) 0%, transparent 50%); pointer-events: none; z-index: 1; }
-    .timeline-card::after { content: ''; position: absolute; top: -2px; left: 0; right: 0; height: 32px; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 40' preserveAspectRatio='none'%3E%3Cpath d='M-10 22 C40 8, 80 28, 120 18 S200 6, 240 20 S320 32, 360 16 S420 10, 440 22' stroke='%232d4a28' stroke-width='3.5' fill='none' opacity='0.9'/%3E%3Cpath d='M-10 22 C40 8, 80 28, 120 18 S200 6, 240 20 S320 32, 360 16 S420 10, 440 22' stroke='%231a2e16' stroke-width='5' fill='none' opacity='0.4' transform='translate(1,2)'/%3E%3C/svg%3E"); background-size: 100% 100%; pointer-events: none; z-index: 2; filter: drop-shadow(0 2px 2px rgba(0,0,0,0.6)); }
-    .song-link { color: #ff7ac3; cursor: pointer; text-decoration: underline; }
-    .related { margin-top: 18px; }
-    .related h4 { font-family: 'Cormorant Garamond', serif; margin: 12px 0 6px; color: #ff7ac3; font-size: 16px; }
-    .related-item { display: inline-block; margin: 4px 6px 4px 0; padding: 4px 10px; background: rgba(255,45,149,0.1); border: 1px solid rgba(255,45,149,0.3); border-radius: 4px; cursor: pointer; font-size: 14px; }
-    .related-item:hover { background: rgba(255,45,149,0.2); }
-    .modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.93); z-index: 100; align-items: center; justify-content: center; padding: 10px; }
-    .modal.active { display: flex; }
-    .modal-content { background: #110d0f; width: 100%; max-width: 1020px; max-height: 90vh; overflow-y: auto; border-radius: 10px; display: grid; grid-template-columns: 1fr; gap: 16px; padding: 16px; position: relative; }
-    @media (min-width: 780px) { .modal-content { grid-template-columns: 380px 1fr; } }
-    .modal-image { width: 100%; max-height: 56vh; object-fit: cover; border-radius: 8px; }
-    .modal-info h2 { font-family: 'Cormorant Garamond', serif; font-size: 32px; margin: 0 0 10px; }
-    .gallery { display: flex; gap: 10px; overflow-x: auto; margin-top: 16px; grid-column: 1 / -1; padding: 4px 0 12px; scrollbar-width: thin; }
-    .gallery img { height: 88px; width: 88px; object-fit: cover; border-radius: 6px; cursor: pointer; flex-shrink: 0; border: 1px solid #3a2830; transition: transform 0.2s, border-color 0.2s; }
-    .gallery img:hover { transform: scale(1.05); border-color: #ff2d95; }
-    .close-btn { grid-column: 1 / -1; justify-self: center; margin-top: 8px; background: #1c1216; color: #fff; border: 1px solid #ff2d95; padding: 10px 28px; cursor: pointer; font-family: 'Cormorant Garamond', serif; border-radius: 4px; }
-    .fullscreen { display: none; position: fixed; inset: 0; background: #000; z-index: 200; align-items: center; justify-content: center; }
-    .fullscreen.active { display: flex; }
-    .fullscreen img { max-width: 96vw; max-height: 96vh; object-fit: contain; }
-    .future-mark { font-size: 48px; text-align: center; margin: 10px 0; color: #ff7ac3; font-family: 'Cormorant Garamond', serif; }
-  </style>
+  <meta name="description" content="Кодекс группы «Осколки хаоса»: лор, персонажи, хроника, локации и песни.">
+  <meta name="theme-color" content="#07060a">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%2307060a'/%3E%3Cpath d='M12 44 L8 20 L21 31 L32 12 L43 31 L56 20 L52 44 Z' fill='none' stroke='%23ff2d95' stroke-width='4' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400&family=Cormorant+Unicase:wght@500;700&family=Marck+Script&family=Spectral:ital,wght@0,300;0,400;1,300&display=swap" rel="stylesheet">
+  <link rel="preload" as="image" href="cover.jpg">
+  <link rel="stylesheet" href="style.css">
 </head>
-<body>
+<body class="locked">
 
+<!-- ═══ Заставка: печать ═══ -->
 <div class="splash" id="splash">
-  <div>
-    <h1>Осколки<span class="neon">ХАОСА</span></h1>
-    <button onclick="enterSite()">Войти в кодекс</button>
-  </div>
-</div>
-
-<div class="site" id="site">
-  <header><h1>Осколки хаоса</h1></header>
-  <nav>
-    <button class="active" onclick="showSection('intro')">Начало</button>
-    <button onclick="showSection('characters')">Персонажи</button>
-    <button onclick="showSection('timeline')">Хронология</button>
-    <button onclick="showSection('events')">События</button>
-    <button onclick="showSection('locations')">Локации</button>
-    <button onclick="showSection('songs')">Песни</button>
-  </nav>
-  <div id="content"></div>
-</div>
-
-<div class="modal" id="modal">
-  <div class="modal-content">
-    <img id="modal-main-image" class="modal-image" src="" alt="">
-    <div class="modal-info">
-      <h2 id="modal-title"></h2>
-      <p id="modal-text"></p>
-      <div class="related" id="modal-related"></div>
+  <div class="splash-inner">
+    <div class="splash-bg"></div>
+    <div class="splash-center">
+      <p class="splash-kicker">Кодекс · Том I</p>
+      <h1 class="splash-title" id="splash-title" aria-label="Осколки хаоса"></h1>
+      <button class="seal" id="splash-seal" aria-label="Сломать печать и войти">
+        <span class="seal-half l"><svg><use href="#crown"/></svg></span>
+        <span class="seal-half r"><svg><use href="#crown"/></svg></span>
+      </button>
+      <p class="splash-hint">Сломай печать</p>
     </div>
-    <div class="gallery" id="modal-gallery"></div>
-    <button class="close-btn" onclick="closeModal()">Закрыть</button>
   </div>
 </div>
-<div class="fullscreen" id="fullscreen" onclick="closeFullscreen(event)"><img id="fullscreen-img"></div>
 
-<script>
-const data = {
-  characters: [
-    { title: "Айла", text: "Старшая дочь короля Элронда. На момент Багровой бойни ей было 13 лет. Хмельная тень отряда и его фактический лидер. Холодная, опасная, умеет пить и убивать с одинаковой лёгкостью. После побега стала ассасином, который не прощает и не забывает.", img: "ayla.jpg", gallery: ["ayla.jpg"], songs: ["Хмельная тень", "Трон ещё ждёт", "Корона горит"], events: ["Багровая бойня", "Побег через кузницу", "Письмо Визиусу"], locations: ["Замок Элронда", "Лес у замка", "Дороги и таверны"] },
-    { title: "Мири", text: "Младшая дочь Элронда, гитаристка. На момент бойни — 10 лет. Принцесса-катастрофа: внешне игривая, сладкая и почти детская, внутри — чистая ярость и жажда мести. Её улыбка часто становится последним, что видит враг.", img: "miri.jpg", gallery: ["miri.jpg"], songs: ["Сладкая дрянь", "Куклы в огне", "Корона горит"], events: ["Багровая бойня", "Побег через кузницу", "Письмо Визиусу"], locations: ["Замок Элронда", "Дороги и таверны"] },
-    { title: "Ильви", text: "Хульдра и бас-гитаристка. Познакомилась с Айлой ещё в детстве, когда та вытащила её из охотничьего капкана. Во время Багровой бойни встретила беглецов в лесу и увела их от погони. Путешествует с отрядом. Опасная и завораживающая.", img: "ilvy.jpg", gallery: ["ilvy.jpg"], songs: ["Рыжий мех"], events: ["Побег через кузницу"], locations: ["Лес у замка"] },
-    { title: "Вулкан", text: "Бывший придворный кузнец короля Элронда и барабанщик отряда. На момент бойни ему было 42 года. Вывел Айлу и Мири из замка через тайные ходы в кузнице. Фундамент группы — и в прямом, и в переносном смысле. Молчаливый, тяжёлый, надёжный.", img: "vulkan.jpg", gallery: ["vulkan.jpg"], songs: ["Трон ещё ждёт"], events: ["Побег через кузницу"], locations: ["Замок Элронда"] },
-    { title: "Ворожея", text: "Вторичный персонаж. Айла обращается к ней, чтобы узнать исход грядущей битвы. Пока её истинные мотивы скрыты.", img: "vorozheya.jpg", gallery: ["vorozheya.jpg"] },
-    { title: "Карга", text: "Вторичный персонаж. Появляется в истории песни «След в след». Ведьма, чья роль в основной линии пока остаётся на периферии.", img: "karga.jpg", gallery: ["karga.jpg"], songs: ["След в след"] },
-    { title: "Элронд", text: "Король, отец Айлы и Мири. Правил сильной династией до тех пор, пока его собственный брат не устроил резню на пиру в честь рождения наследника. Убит Визиусом.", img: "elrond.jpg", gallery: ["elrond.jpg"], events: ["Багровая бойня"], locations: ["Замок Элронда"] },
-    { title: "Визиус", text: "Младший брат короля Элронда. Завидовал трону. Когда у Элронда родился сын — прямой наследник, — Визиус собрал людей и устроил Багровую бойню. Захватил престол и правит плохо: королевство в упадке и разрухе.", img: "vizius.jpg", gallery: ["vizius.jpg"], events: ["Багровая бойня", "Письмо Визиусу"], locations: ["Замок Элронда"] }
-  ],
-  timeline: [
-    { year: "ДББ −15", title: "Детство при дворе", text: "Элронд правит. В замке растут маленькие Айла и Мири. Вулкан служит придворным кузнецом и близок к семье.", img: "castle.jpg" },
-    { year: "ДББ −8", title: "Знакомство с Ильви", text: "Айла, бегая по лесу у замка, находит хульдру в охотничьем капкане и освобождает её. Так начинается их дружба.", img: "forest.jpg" },
-    { year: "0 — Бойня", title: "Багровая бойня", text: "На пиру в честь рождения наследника Визиус и его люди устраивают резню. Гибнут король Элронд, королева и младенец. Айле 13, Мири 10. Вулкан выводит девочек тайными ходами, Ильви встречает их в лесу и уводит от погони.", img: "battle.jpg", song: "Багровая бойня" },
-    { year: "ПББ +1…+12", title: "Годы скитаний", text: "Четверо скитаются вместе. Айла и Мири взрослеют и превращаются в тех, кем их сделала бойня. Королевство под Визиусом медленно умирает.", img: "forest.jpg", song: "Хмельная тень • Рыжий мех • Сладкая дрянь • Куклы в огне • Трон ещё ждёт" },
-    { year: "ПББ +13", title: "Корона горит", text: "Айла (26) и Мири (23) отправляют дяде письмо. Визиус впервые узнаёт, что племянницы выжили. Месть становится открытой.", img: "cover.jpg", song: "Корона горит" },
-    { year: "???", title: "Будущее", text: "Что будет дальше — ещё не решено. История продолжается.", img: "", future: true }
-  ],
-  events: [
-    { title: "Багровая бойня", text: "Центральное событие истории. Визиус убивает брата и почти всю его семью на пиру. Выживают только Айла, Мири и те, кто успел их вывести.", img: "battle.jpg" },
-    { title: "Побег через кузницу", text: "Вулкан, зная тайные ходы из недр замка, выводит девочек в лес. Ильви встречает их и уводит дальше от погони.", img: "forest.jpg" },
-    { title: "Письмо Визиусу", text: "Момент из песни «Корона горит». Айла и Мири прямо объявляют дяде, что идут за ним.", img: "letter.jpg" }
-  ],
-  locations: [
-    { title: "Замок Элронда", text: "Родовой замок. Место Багровой бойни и текущая резиденция Визиуса. Символ всего, что было отнято.", img: "castle.jpg" },
-    { title: "Лес у замка", text: "Лес, где Айла когда-то спасла Ильви и куда Вулкан вывел девочек в ночь бойни. Первое убежище после резни.", img: "forest.jpg" },
-    { title: "Дороги и таверны", text: "Места, где отряд проводит годы после побега. Здесь происходят многие события их взросления и охоты.", img: "tavern.jpg" }
-  ],
-  songs: [
-    { title: "Хмельная тень", text: "Песня про Айлу. Показывает её уже взрослой — опасной, пьяной и смертоносной.", img: "ayla.jpg" },
-    { title: "Рыжий мех", text: "Песня про Ильви и её природу хульдры.", img: "ilvy.jpg" },
-    { title: "Сладкая дрянь", text: "Песня про Мири. Её игривая и одновременно убийственная сторона.", img: "miri.jpg" },
-    { title: "Багровая бойня", text: "Рассказ о резне, устроенной Визиусом, и о гибели короля.", img: "battle.jpg" },
-    { title: "Куклы в огне", text: "Мири вспоминает детство в замке и мечтает всё сжечь заново.", img: "miri.jpg" },
-    { title: "Трон ещё ждёт", text: "Вулкан и Айла вспоминают прошлое и говорят о возвращении трона.", img: "vulkan.jpg" },
-    { title: "След в след", text: "Побочная история, в которой появляется Карга.", img: "karga.jpg" },
-    { title: "Корона горит", text: "Письмо-угроза Визиусу. Момент, когда месть становится явной.", img: "cover.jpg" }
-  ]
-};
+<canvas id="embers" aria-hidden="true"></canvas>
+<div class="cursor-ring" aria-hidden="true"></div>
+<div class="cursor-dot" aria-hidden="true"></div>
+<div class="fuse" aria-hidden="true"><i></i></div>
 
-function enterSite() {
-  document.getElementById('splash').classList.add('hide');
-  document.getElementById('site').classList.add('visible');
-  showSection('intro');
-}
+<nav class="nav" id="nav">
+  <a class="nav-logo" href="#top">Осколки <b>хаоса</b></a>
+  <div class="nav-links">
+    <a href="#prologue">Пролог</a>
+    <a href="#characters">Персонажи</a>
+    <a href="#chronicle">Хроника</a>
+    <a href="#events">События</a>
+    <a href="#map">Карта</a>
+    <a href="#oracle">Гадание</a>
+    <a href="#songs">Песни</a>
+  </div>
+  <div class="nav-social"><button class="sound-toggle" id="sound-toggle"><i></i><i></i><i></i><i></i></button><span id="nav-social"></span></div>
+</nav>
 
-function showSection(section) {
-  document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
-  if (event?.target) event.target.classList.add('active');
-  const c = document.getElementById('content');
-  c.innerHTML = '';
-  c.className = '';
-  if (section === 'intro') {
-    c.innerHTML = `<div class="intro"><h2>Начало хаоса</h2><p>Тёмный паган-фолк-рок. Не саундтрек к пиру — а сам пир. Костёр, сталь и история, которую лучше не пересказывать трезвым.</p></div>`;
-    return;
-  }
-  if (section === 'timeline') {
-    c.className = 'timeline';
-    data.timeline.forEach(item => {
-      const el = document.createElement('div');
-      el.className = 'timeline-item';
-      let songHtml = item.song ? `<div style="margin-top:6px;font-size:13px;">Песни: ${item.song.split(' • ').map(s => `<span class="song-link" onclick="event.stopPropagation(); openByTitle('songs','${s.trim()}')">${s.trim()}</span>`).join(' • ')}</div>` : '';
-      const futureMark = item.future ? `<div class="future-mark">?</div>` : '';
-      el.innerHTML = `<div class="timeline-card"><div style="color:#ff7ac3;font-size:12px;">${item.year}</div><h3 style="margin:4px 0;font-family:'Cormorant Garamond',serif;">${item.title}</h3>${futureMark}<p style="margin:0;font-size:14.5px;">${item.text}</p>${songHtml}</div>`;
-      el.onclick = () => openModal(item);
-      c.appendChild(el);
-    });
-  } else {
-    c.className = 'grid';
-    (data[section] || []).forEach(item => {
-      const card = document.createElement('div');
-      card.className = 'card';
-      card.innerHTML = `<img src="${item.img||''}"><h3>${item.title}</h3>`;
-      card.onclick = () => openModal(item);
-      c.appendChild(card);
-    });
-  }
-}
+<main id="top">
 
-function openModal(item) {
-  document.body.classList.add('modal-open');
-  document.getElementById('modal-title').textContent = item.title;
-  document.getElementById('modal-text').textContent = item.text || '';
-  document.getElementById('modal-main-image').src = item.img || '';
+  <!-- ═══ Герой ═══ -->
+  <section class="hero" id="hero">
+    <div class="fog f1"></div><div class="fog f2"></div>
+    <div class="hero-copy">
+      <p class="kicker hero-kicker">Тёмный паган-фолк-рок</p>
+      <h2 class="hero-title"><span class="l1"><span>Осколки</span></span><span class="l2"><span>хаоса</span></span></h2>
+      <p class="hero-tag" id="hero-tag"></p>
+      <a class="btn" href="#prologue">Открыть кодекс <span>↓</span></a>
+    </div>
+    <div class="hero-portrait" id="hero-portrait">
+      <div class="hero-glow"></div>
+      <div class="hero-core"></div>
+      <div class="hero-shards" id="hero-shards"></div>
+      <div class="hero-flame"></div>
+    </div>
+    <div class="scroll-cue"><span></span></div>
+  </section>
 
-  const related = document.getElementById('modal-related');
-  related.innerHTML = '';
+  <!-- ═══ Пролог ═══ -->
+  <section class="prologue" id="prologue" data-progress>
+    <div class="prologue-sticky">
+      <p class="kicker">Пролог</p>
+      <p class="prologue-text" id="prologue-text"></p>
+    </div>
+  </section>
 
-  const addRelated = (label, titles, type) => {
-    if (!titles || !titles.length) return;
-    const h = document.createElement('h4');
-    h.textContent = label;
-    related.appendChild(h);
-    titles.forEach(t => {
-      const span = document.createElement('span');
-      span.className = 'related-item';
-      span.textContent = t;
-      span.onclick = () => openByTitle(type, t);
-      related.appendChild(span);
-    });
-  };
+  <!-- ═══ Персонажи ═══ -->
+  <section class="sec" id="characters">
+    <header class="sec-head" data-reveal>
+      <span class="sec-num">I</span>
+      <p class="kicker">Действующие лица</p>
+      <h2 class="sec-title">Те, кто <em>выжил</em>,<br>и те, кто убивал</h2>
+    </header>
+    <div class="filters" id="filters" data-reveal>
+      <button class="active" data-f="all">Все</button>
+      <button data-f="otryad">Отряд</button>
+      <button data-f="dvor">Двор</button>
+      <button data-f="teni">Тени</button>
+    </div>
+    <div class="cards" id="cards"></div>
+  </section>
 
-  addRelated('Песни', item.songs, 'songs');
-  addRelated('События', item.events, 'events');
-  addRelated('Локации', item.locations, 'locations');
+  <!-- ═══ Хроника ═══ -->
+  <section class="chron" id="chronicle" data-progress>
+    <div class="chron-sticky">
+      <header class="chron-head">
+        <span class="sec-num">II</span>
+        <p class="kicker">Хроника</p>
+        <h2 class="sec-title small">До и после <em>бойни</em></h2>
+      </header>
+      <div class="chron-track" id="chron-track"></div>
+      <div class="chron-fuse"><i></i></div>
+    </div>
+  </section>
 
-  const gallery = document.getElementById('modal-gallery');
-  gallery.innerHTML = '';
-  const images = (item.gallery && item.gallery.length) ? item.gallery : (item.img ? [item.img] : []);
-  images.forEach(src => {
-    if (!src) return;
-    const img = document.createElement('img');
-    img.src = src;
-    img.onclick = () => openFullscreen(src);
-    gallery.appendChild(img);
-  });
+  <!-- ═══ События ═══ -->
+  <section id="events">
+    <header class="sec sec-head center" data-reveal>
+      <span class="sec-num">III</span>
+      <p class="kicker">События</p>
+      <h2 class="sec-title">Три ночи,<br>что <em>сломали</em> мир</h2>
+    </header>
+    <div id="scenes"></div>
+  </section>
 
-  const modalContent = document.querySelector('.modal-content');
-  if (modalContent) modalContent.scrollTop = 0;
+  <!-- ═══ Карта ═══ -->
+  <section class="sec" id="map">
+    <header class="sec-head" data-reveal>
+      <span class="sec-num">IV</span>
+      <p class="kicker">Локации</p>
+      <h2 class="sec-title">Земли <em>Элронда</em></h2>
+    </header>
+    <div class="map-wrap" data-reveal>
+      <svg class="map" id="map-svg" viewBox="0 0 1000 620" role="img" aria-label="Карта земель"></svg>
+      <aside class="map-panel" id="map-panel"></aside>
+    </div>
+  </section>
 
-  document.getElementById('modal').classList.add('active');
-}
+  <!-- ═══ Гадание ═══ -->
+  <section class="sec oracle-sec" id="oracle">
+    <div class="oracle">
+      <div class="oracle-portrait" data-reveal>
+        <img src="vorozheya.jpg" alt="Ворожея" loading="lazy">
+      </div>
+      <div class="oracle-side">
+        <header data-reveal>
+          <span class="sec-num">V</span>
+          <p class="kicker">Ворожея</p>
+          <h2 class="sec-title">Вытяни <em>карту</em></h2>
+          <p class="lead">Айла приходила к ней узнать исход битвы. Но карты Ворожеи пока запечатаны — её песня ещё не спета.</p>
+        </header>
+        <div class="ocards" id="ocards" data-reveal></div>
+        <p class="oracle-msg" id="oracle-msg">«Не время. Приходи, когда зазвучит моя песня».</p>
+        <button class="btn ghost" id="oracle-again" hidden>Перетасовать</button>
+      </div>
+    </div>
+  </section>
 
-function openByTitle(type, title) {
-  const item = data[type]?.find(i => i.title === title);
-  if (item) {
-    closeModal();
-    setTimeout(() => openModal(item), 50);
-  }
-}
+  <!-- ═══ Песни ═══ -->
+  <section class="sec" id="songs">
+    <header class="sec-head" data-reveal>
+      <span class="sec-num">VI</span>
+      <p class="kicker">Трек-лист</p>
+      <h2 class="sec-title">Песни, что <em>помнят</em></h2>
+      <div class="scene-actions" id="songs-links"></div>
+    </header>
+    <div class="songs">
+      <ol class="song-list" id="song-list"></ol>
+      <div class="song-preview" aria-hidden="true">
+        <div class="vinyl"><div class="vinyl-label" id="vinyl-label"></div></div>
+        <div class="sleeve" id="sleeve"></div>
+      </div>
+    </div>
+  </section>
 
-function closeModal() {
-  document.body.classList.remove('modal-open');
-  document.getElementById('modal').classList.remove('active');
-}
-function openFullscreen(src) {
-  document.getElementById('fullscreen-img').src = src;
-  document.getElementById('fullscreen').classList.add('active');
-}
-function closeFullscreen(e) {
-  if (e.target.id === 'fullscreen') document.getElementById('fullscreen').classList.remove('active');
-}
-</script>
+  <!-- ═══ Финал ═══ -->
+  <footer class="finale">
+    <div class="finale-q" data-text="?">?</div>
+    <p class="finale-text" data-reveal>Следующий осколок ещё не упал.</p>
+    <div class="finale-links" id="finale-links"></div>
+    <p class="finale-small">Осколки хаоса · Кодекс · <span id="year"></span></p>
+  </footer>
+</main>
+
+<!-- ═══ Страница кодекса ═══ -->
+<div class="entry" id="entry" role="dialog" aria-modal="true" aria-label="Запись кодекса" hidden>
+  <button class="entry-close" id="entry-close" aria-label="Закрыть">✕</button>
+  <button class="entry-arrow prev" id="entry-prev" aria-label="Предыдущая запись">←</button>
+  <button class="entry-arrow next" id="entry-next" aria-label="Следующая запись">→</button>
+  <div class="entry-body" id="entry-body"></div>
+</div>
+
+<div class="lightbox" id="lightbox" hidden><img alt=""></div>
+
+<div class="now" id="now" aria-live="polite">
+  <span class="now-disc"></span>
+  <button class="now-title" id="now-title"></button>
+  <button class="now-toggle" id="now-toggle" aria-label="Пауза">❚❚</button>
+  <i class="now-bar" id="now-bar"></i>
+</div>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="crown" viewBox="0 0 64 64">
+    <path d="M10 46 L6 20 L20 32 L32 12 L44 32 L58 20 L54 46 Z" fill="none" stroke="currentColor" stroke-width="3" stroke-linejoin="round"/>
+    <path d="M12 52 H52" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+    <circle cx="32" cy="34" r="3" fill="currentColor"/>
+  </symbol>
+  <symbol id="i-vk" viewBox="0 0 24 24">
+    <rect width="24" height="24" rx="6" fill="#0077FF"/>
+    <path fill="#fff" d="M12.77 17.03c-5.3 0-8.32-3.63-8.45-9.68h2.66c.09 4.44 2.05 6.32 3.6 6.7V7.35h2.5v3.83c1.53-.17 3.14-1.91 3.68-3.83h2.5a7.4 7.4 0 0 1-3.4 4.83 7.66 7.66 0 0 1 3.98 4.85h-2.75a4.79 4.79 0 0 0-4.01-3.46v3.46h-.3Z"/>
+  </symbol>
+  <symbol id="i-yandex" viewBox="0 0 24 24">
+    <circle cx="12" cy="12" r="12" fill="#FFCC00"/>
+    <path fill="#000" d="M13.4 18.5h2.1V5.5h-3.05c-3.07 0-4.69 1.58-4.69 3.9 0 1.86.89 2.95 2.47 4.09L7.5 18.5h2.27l3.06-4.57-1.06-.71c-1.29-.87-1.91-1.55-1.91-3.01 0-1.29.9-2.16 2.63-2.16h.91V18.5Z"/>
+  </symbol>
+  <symbol id="eye" viewBox="0 0 64 64">
+    <path d="M4 32 C16 14 48 14 60 32 C48 50 16 50 4 32 Z" fill="none" stroke="currentColor" stroke-width="2"/>
+    <circle cx="32" cy="32" r="9" fill="none" stroke="currentColor" stroke-width="2"/>
+    <circle cx="32" cy="32" r="3" fill="currentColor"/>
+  </symbol>
+</svg>
+
+<script src="data.js"></script>
+<script src="app.js"></script>
 </body>
 </html>
