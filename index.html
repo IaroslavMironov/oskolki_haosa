@@ -212,6 +212,9 @@ function openModal(item) {
     gallery.appendChild(img);
   });
 
+  const modalContent = document.querySelector('.modal-content');
+  if (modalContent) modalContent.scrollTop = 0;
+
   document.getElementById('modal').classList.add('active');
 }
 
