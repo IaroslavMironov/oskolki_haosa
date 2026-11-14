@@ -260,6 +260,7 @@ html.fine .card:hover .card-ep { max-height: 50px; opacity: 1; }
 .chron { position: relative; }
 .chron-sticky { position: sticky; top: 0; height: 100svh; overflow: hidden; display: flex; flex-direction: column; justify-content: center; }
 .chron-head { position: relative; padding: 0 8vw; margin-bottom: 4vh; }
+.chron-era { margin: 10px 0 0; font: italic 400 15px var(--serif); color: var(--dim); letter-spacing: .04em; }
 .chron-head .sec-num { font-size: clamp(100px, 14vw, 200px); top: -.35em; left: 7vw; }
 .chron-track { display: flex; gap: 7vw; padding: 0 8vw; will-change: transform; }
 .chron-panel { flex: 0 0 min(80vw, 1000px); display: grid; grid-template-columns: .9fr 1.1fr; gap: 44px; align-items: center; cursor: pointer; }
@@ -417,14 +418,26 @@ html.fine .ocard:hover:not(.flipped) { transform: translateY(-14px) rotate(-2deg
 .ocard-back { border: 1px solid rgba(214,163,92,.55); color: var(--gold);
   background: radial-gradient(circle at 50% 50%, rgba(165,140,255,.25), transparent 55%), repeating-conic-gradient(from 0deg, rgba(214,163,92,.07) 0 10deg, transparent 10deg 20deg), linear-gradient(#1a1220, #0b080e); box-shadow: inset 0 0 0 6px #0b080e, inset 0 0 0 7px rgba(214,163,92,.35), 0 20px 40px -15px #000; }
 .ocard-back svg { width: 46%; height: 46%; filter: drop-shadow(0 0 8px rgba(214,163,92,.5)); }
-.ocard-front { transform: rotateY(180deg); font: italic 400 clamp(16px, 1.6vw, 21px)/1.35 var(--serif); color: #2a1a10;
+.ocard-front { transform: rotateY(180deg); align-content: center; gap: 12px; color: #3a2312;
   background: radial-gradient(ellipse at 50% 40%, #eedcb8, #cdb083 70%, #9c7b50); box-shadow: inset 0 0 40px rgba(70,35,10,.5), 0 0 50px rgba(165,140,255,.45); }
+/* лицевая сторона: знак Ока и название карты */
+.ocard-front svg { width: 42%; height: auto; opacity: .55; }
+.ocard-front b { font: 500 clamp(13px, 1.35vw, 19px)/1.15 var(--uni); letter-spacing: .06em; }
 .ocard.flipped { transform: rotateY(180deg) translateY(-16px) scale(1.06); animation: none; z-index: 2; }
 .ocards.drawn .ocard:not(.flipped) { opacity: .2; transform: scale(.9); }
-#oracle-again { margin-top: 30px; }
+#oracle-again { margin-top: 22px; }
+/* пророчество крупно под картами */
+.oracle-reading { min-height: 0; margin: 30px 0 0; font: italic 400 clamp(21px, 2vw, 27px)/1.35 var(--serif); color: var(--bone); text-shadow: 0 0 22px rgba(165,140,255,.45); opacity: 0; }
+.oracle-reading.show { animation: fadeUp .9s var(--ease-out) forwards; }
+.oracle-reading .or-card { display: block; margin-bottom: 8px; font: 500 12px/1 var(--body); font-style: normal; letter-spacing: .3em; text-transform: uppercase; color: var(--violet); }
+.oracle-reading .or-note { display: block; margin-bottom: 10px; font: italic 400 15px var(--serif); color: var(--dim); text-shadow: none; }
+.oracle-left { margin: 18px 0 0; font: 400 13px/1.4 var(--body); letter-spacing: .12em; color: var(--dim); }
+.oracle-left.tired { color: var(--violet); font: italic 400 18px var(--serif); letter-spacing: 0; }
+.sealed .oracle-reading, .sealed .oracle-left { display: none; }
+#oracle:not(.sealed) .oracle-msg { display: none; } /* «Не время…» — только пока карты запечатаны */
 /* запечатанное гадание */
 .ocard-lock { position: absolute; left: 50%; bottom: 12%; width: 40px; height: 40px; translate: -50% 0; border-radius: 47% 53% 50% 50%;
-  background: radial-gradient(circle at 34% 30%, #d43a4c, #9a1024 50%, #4a0610); box-shadow: inset -3px -4px 6px rgba(0,0,0,.5), 0 4px 10px rgba(0,0,0,.6); }
+  background: url(opt/seal.webp) center / 135% no-repeat; }
 .sealed .ocard-back::after { content: ''; position: absolute; inset: 0; border-radius: 10px; pointer-events: none;
   background: linear-gradient(35deg, transparent 46%, rgba(165,140,255,.35) 47%, rgba(165,140,255,.35) 49%, transparent 50%), linear-gradient(-35deg, transparent 46%, rgba(165,140,255,.35) 47%, rgba(165,140,255,.35) 49%, transparent 50%); }
 .sealed .ocard-back svg { opacity: .45; }
@@ -674,3 +687,18 @@ body.glitch main { animation: glitch .1s steps(2) 12; }
 /* векторные иконки в кнопках (вместо ▶ ❚❚ ♪: на Android это цветные эмодзи) */
 .ic { width: 1em; height: 1em; fill: currentColor; vertical-align: -.14em; flex: none; pointer-events: none; }
 .card-play .ic, .song-play .ic, .now-toggle .ic { vertical-align: middle; }
+
+/* ── новинка (новая песня / раскрытый герой): newDays дней после выхода ── */
+.new-tag { display: inline-block; margin: 0 10px 6px 0; padding: 4px 9px 3px; border-radius: 20px; background: var(--neon); color: #fff; font: 600 9.5px/1 var(--body); letter-spacing: .22em; text-transform: uppercase; box-shadow: 0 0 16px rgba(255,45,149,.7); vertical-align: middle; }
+.card.is-new .card-in { box-shadow: 0 20px 40px -20px rgba(0,0,0,.9), 0 0 0 1px rgba(255,45,149,.75), 0 0 30px -6px rgba(255,45,149,.8); }
+.song.is-new { background: linear-gradient(90deg, rgba(255,45,149,.1), transparent 70%); }
+.song.is-new .song-num { color: var(--neon); text-shadow: 0 0 12px var(--neon); }
+.song-badge.new { border-color: var(--neon); background: var(--neon); color: #fff; }
+.nav-links a.has-new { position: relative; }
+.nav-links a.has-new::after { content: ''; position: absolute; top: -3px; right: -9px; width: 6px; height: 6px; border-radius: 50%; background: var(--neon); box-shadow: 0 0 10px var(--neon); animation: newPing 1.8s ease-in-out infinite; }
+@keyframes newPing { 50% { opacity: .35; transform: scale(.7); } }
+.news { display: flex; align-items: center; gap: 10px; margin-top: 18px; padding: 10px 18px 10px 14px; border: 1px solid rgba(255,45,149,.55); border-radius: 30px; background: rgba(10,7,9,.6); color: var(--bone); font: 400 15px/1 var(--body); letter-spacing: .04em;
+  opacity: 0; transform: translateY(20px); transition: opacity 1.2s 1.3s var(--ease-out), transform 1.2s 1.3s var(--ease-out), border-color .3s, box-shadow .3s; }
+body.entered .news { opacity: 1; transform: none; }
+html.fine .news:hover { border-color: var(--neon); box-shadow: 0 0 24px rgba(255,45,149,.45); }
+.news-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--neon); box-shadow: 0 0 10px var(--neon); animation: newPing 1.8s ease-in-out infinite; }

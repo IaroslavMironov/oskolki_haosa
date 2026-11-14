@@ -20,8 +20,25 @@ const CHIP = { characters: '', timeline: 'gold', events: 'gold', locations: 'vio
 const FACTION = { otryad: 'Отряд', dvor: 'Двор', teni: 'Тени' };
 const ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'XII', 'XIII', 'XIV', 'XV'];
 
+/* ── выход новых песен (D.releases): до даты всё помеченное release скрыто, после — открыто само;
+   newDays дней после выхода — «Новое». С ?preview в адресе — посмотреть заранее, как будет после выхода ── */
+const PREVIEW = new URLSearchParams(location.search).has('preview');
+const relState = key => {
+  const r = D.releases?.[key]; if (!r) return { out: true, fresh: false };
+  const at = Date.parse(r.date || ''), out = PREVIEW || at <= Date.now(); // пустая дата → NaN → скрыто
+  return { out, fresh: out && (PREVIEW || Date.now() - at < (r.newDays ?? 30) * 864e5) };
+};
+for (const t in TYPES) D[t] = D[t].filter(i => {
+  if (i.reveal) { const s = relState(i.reveal.release); if (s.out) { Object.assign(i, i.reveal); i.isNew = s.fresh; } }
+  if (!i.release) return true;
+  const s = relState(i.release); i.isNew = s.fresh;
+  return s.out;
+});
+if (D.propheciesRelease && !relState(D.propheciesRelease).out) D.prophecies = []; // гадание запечатано до выхода песни
+
 /* ── связи: прямые + обратные ── */
 const find = (t, title) => (D[t] || []).find(i => i.title === title);
+const hasTheme = c => !!find('songs', c.theme)?.preview; // тема есть, только когда у её песни есть отрывок
 const links = new Map();
 const addLink = (item, t, title) => {
   if (!links.has(item)) links.set(item, {});
@@ -236,15 +253,15 @@ function initPrologue() {
 /* ═══════════ Персонажи ═══════════ */
 function initCharacters() {
   $('#cards').innerHTML = D.characters.map((c, i) => `
-    <article class="card" ${openAttr(c)} data-faction="${c.faction}" data-reveal style="--i:${i % 4};--aura:${esc(c.aura || '#ff7a2e')}" data-aura="${esc(c.aura || '#ff7a2e')}" tabindex="0" aria-label="${esc(c.title)} — открыть в кодексе">
+    <article class="card${c.isNew ? ' is-new' : ''}" ${openAttr(c)} data-faction="${c.faction}" data-reveal style="--i:${i % 4};--aura:${esc(c.aura || '#ff7a2e')}" data-aura="${esc(c.aura || '#ff7a2e')}" tabindex="0" aria-label="${esc(c.title)} — открыть в кодексе">
       <span class="card-glow" aria-hidden="true"></span>
       <div class="card-in">
         <div class="card-media">${c.video ? imgTag(c.img, c.title, SIZES.card) : ''}${media(c, '', fine ? 'hover' : 'one', SIZES.card)}</div>
         <div class="card-glare"></div>
         <div class="card-frame"></div>
-        ${c.theme ? `<span class="card-sing" aria-hidden="true"></span><button class="card-play" data-theme="${esc(c.theme)}" data-on="" data-off="" aria-pressed="false" aria-label="Слушать тему: «${esc(c.theme)}»">${ico('note')}</button>` : ''}
+        ${hasTheme(c) ? `<span class="card-sing" aria-hidden="true"></span><button class="card-play" data-theme="${esc(c.theme)}" data-on="" data-off="" aria-pressed="false" aria-label="Слушать тему: «${esc(c.theme)}»">${ico('note')}</button>` : ''}
         <div class="card-body">
-          <span class="card-tag">${esc(FACTION[c.faction] || '')}${c.role ? ' · ' + esc(c.role) : ''}</span>
+          ${c.isNew ? '<span class="new-tag">Новое</span>' : ''}<span class="card-tag">${esc(FACTION[c.faction] || '')}${c.role ? ' · ' + esc(c.role) : ''}</span>
           <h3>${esc(c.title)}</h3>
           ${c.epithet ? `<p class="card-ep">${esc(c.epithet)}</p>` : ''}
         </div>
@@ -650,39 +667,85 @@ function initOracle() {
     });
     return;
   }
-  const deal = () => {
+  // карты открыты (песня вышла)
+  $('.oracle-side .lead').textContent = 'Айла приходила к ней узнать исход битвы. Теперь карты открыты — вытяни свою.';
+  if (find('characters', 'Ворожея')?.isNew) $('.oracle-side .kicker').insertAdjacentHTML('afterbegin', '<span class="new-tag">Новое</span>');
+  // Колода: на лицевой стороне — название карты, само пророчество — крупно под картами (на узкой карте не помещалось).
+  // N гаданий в сутки на человека (до полуночи по его часам), без повторов, пока не пройдена вся колода.
+  // Счёт — в браузере посетителя: сервера нет, так что это мягкое ограничение, а не защита.
+  const P = D.prophecies.map(p => typeof p === 'string' ? { card: 'Пророчество', text: p } : p);
+  const PER_DAY = D.oracleDaily || 3, KEY = 'codex-oracle';
+  const reading = $('#oracle-reading'), left = $('#oracle-left');
+  const today = () => new Date().toLocaleDateString('sv'); // ГГГГ-ММ-ДД по местному времени
+  let st = {};
+  try { st = JSON.parse(localStorage.getItem(KEY)) || {}; } catch {}
+  if (st.day !== today()) st = { day: today(), used: 0, last: null, seen: st.seen || [] };
+  const save = () => { try { localStorage.setItem(KEY, JSON.stringify(st)); } catch {} };
+  const untilMidnight = () => {
+    const m = Math.ceil((new Date().setHours(24, 0, 0, 0) - Date.now()) / 6e4), h = Math.floor(m / 60);
+    return h ? `${h} ч ${m % 60} мин` : `${m} мин`;
+  };
+  const status = () => {
+    const n = PER_DAY - st.used;
+    left.textContent = n > 0 ? `Гаданий на сегодня: ${n} из ${PER_DAY}` : `Ворожея устала. Новые карты — через ${untilMidnight()}.`;
+    left.classList.toggle('tired', n <= 0);
+    again.hidden = n <= 0 || !box.classList.contains('drawn');
+  };
+  const show = (i, first) => {
+    reading.innerHTML = `<span class="or-card">${esc(P[i].card)}</span>«${esc(P[i].text)}»`;
+    reading.classList.remove('show'); void reading.offsetWidth; reading.classList.add('show');
+    if (first) reading.insertAdjacentHTML('afterbegin', '<span class="or-note">Твоё пророчество на сегодня</span>');
+  };
+  // три разных карты, которых ещё не было (колода прошла целиком — начинаем заново)
+  const draw3 = () => {
+    let pool = P.map((_, i) => i).filter(i => !st.seen.includes(i));
+    if (pool.length < 3) { st.seen = []; pool = P.map((_, i) => i); }
+    return pool.sort(() => Math.random() - .5).slice(0, 3);
+  };
+  const deal = (flipLast) => {
     box.classList.remove('drawn');
-    again.hidden = true;
-    const pool = [...D.prophecies].sort(() => Math.random() - .5);
-    box.innerHTML = [0, 1, 2].map(i => `
-      <button class="ocard" style="--i:${i}" aria-label="Вытянуть карту ${i + 1}">
+    const ids = flipLast != null ? [flipLast, ...draw3().filter(i => i !== flipLast).slice(0, 2)] : draw3();
+    box.innerHTML = ids.map((p, i) => `
+      <button class="ocard" style="--i:${i}" data-p="${p}" aria-label="Вытянуть карту ${i + 1}">
         <span class="ocard-face ocard-back"><svg aria-hidden="true"><use href="#eye"/></svg></span>
-        <span class="ocard-face ocard-front">${esc(pool[i])}</span>
+        <span class="ocard-face ocard-front"><svg aria-hidden="true"><use href="#eye"/></svg><b>${esc(P[p].card)}</b></span>
       </button>`).join('');
+    if (flipLast == null) { reading.classList.remove('show'); reading.innerHTML = ''; }
+    status();
   };
   box.addEventListener('click', e => {
     const c = e.target.closest('.ocard');
     if (!c || box.classList.contains('drawn')) return;
+    if (st.used >= PER_DAY) { status(); return; }
+    const i = +c.dataset.p;
     c.classList.add('flipped');
     box.classList.add('drawn');
+    st.used++; st.last = i; st.seen.push(i); save();
     const r = c.getBoundingClientRect();
     Embers.burst(r.left + r.width / 2, r.top + r.height / 2, 50, 'violet');
-    setTimeout(() => (again.hidden = false), 1000);
+    setTimeout(() => { show(i); status(); }, 650);
   });
-  again.addEventListener('click', deal);
-  deal();
+  again.addEventListener('click', () => deal());
+  // гадания на сегодня закончились — показываем последнее пророчество, карты закрыты до полуночи
+  if (st.used >= PER_DAY && st.last != null && P[st.last]) {
+    deal(st.last);
+    const c = box.firstElementChild; c.classList.add('flipped'); box.classList.add('drawn');
+    show(st.last, true); status();
+  } else deal();
 }
 
 /* ═══════════ Песни ═══════════ */
 const player = new Audio();
 let playing = null, songCover = null;
 function initSongs() {
-  $('#song-list').innerHTML = D.songs.map((s, i) => `
-    <li class="song" data-i="${i}" ${openAttr(s)} tabindex="0">
-      <span class="song-num">${ROMAN[i] || i + 1}</span>
+  // новинки — первыми в списке, со звёздочкой вместо номера
+  const order = D.songs.map((s, i) => [s, i]).sort((a, b) => (b[0].isNew ? 1 : 0) - (a[0].isNew ? 1 : 0));
+  $('#song-list').innerHTML = order.map(([s, i]) => `
+    <li class="song${s.isNew ? ' is-new' : ''}" data-i="${i}" ${openAttr(s)} tabindex="0">
+      <span class="song-num">${s.isNew ? '✦' : ROMAN[i] || i + 1}</span>
       <img class="song-thumb" src="${esc(best(s.img, 120))}" alt="" loading="lazy" decoding="async">
       <span><span class="song-title">${esc(s.title)}</span><span class="song-sub">${esc(s.text)}</span></span>
-      <span class="song-right">${s.clip ? '<span class="song-badge hot">Клип</span>' : ''}${s.lyrics ? '<span class="song-badge">Текст</span>' : ''}<span class="eq" aria-hidden="true"><i></i><i></i><i></i><i></i></span>${s.preview ? `<button class="song-play" data-play="${esc(s.title)}" aria-label="Слушать отрывок «${esc(s.title)}»">${ico('play')}</button>` : ''}</span>
+      <span class="song-right">${s.isNew ? '<span class="song-badge new">Новое</span>' : ''}${s.clip ? '<span class="song-badge hot">Клип</span>' : ''}${s.lyrics ? '<span class="song-badge">Текст</span>' : ''}<span class="eq" aria-hidden="true"><i></i><i></i><i></i><i></i></span>${s.preview ? `<button class="song-play" data-play="${esc(s.title)}" aria-label="Слушать отрывок «${esc(s.title)}»">${ico('play')}</button>` : ''}</span>
     </li>`).join('');
   const sleeve = $('#sleeve'), label = $('#vinyl-label'), wrap = $('.songs');
   const setCover = songCover = s => { const u = `url("${best(s.img, 480)}")`; sleeve.style.backgroundImage = u; label.style.backgroundImage = u; };
@@ -836,12 +899,12 @@ function renderEntry(item) {
   $('#entry-body').innerHTML = `
     <div class="entry-media">${item.img || item.video ? media(item, '', fine ? 'play' : 'later', SIZES.entry) : '<div class="entry-noimg" aria-hidden="true">?</div>'}${item.img ? crackSvg() : ''}</div>
     <div class="entry-info">
-      <p class="kicker" ${n()}>${kicker}</p>
+      <p class="kicker" ${n()}>${item.isNew ? '<span class="new-tag">Новое</span>' : ''}${kicker}</p>
       <h2 ${n()} id="entry-title">${esc(item.title)}</h2>
       ${item.epithet ? `<p class="entry-ep" ${n()}>${esc(item.epithet)}</p>` : ''}
       ${item.quote ? `<blockquote class="entry-quote" ${n()}>${esc(item.quote)}</blockquote>` : ''}
       <p class="entry-text" ${n()}>${esc(item.text)}</p>
-      ${item.preview || listen || item.theme ? `<div class="scene-actions" ${n()}>${item.theme ? `<button class="btn play-btn" data-theme="${esc(item.theme)}" data-aura="${esc(item.aura || '')}" data-on=" Тема: «${esc(item.theme)}»" data-off=" Тема героя: «${esc(item.theme)}»" aria-pressed="false">${ico('note')} Тема героя: «${esc(item.theme)}»</button>` : ''}${item.preview ? `<button class="btn play-btn" data-play="${esc(item.title)}">${playing === item ? ico('pause') + ' Пауза' : ico('play') + ' Слушать отрывок'}</button>` : ''}${listen}</div>` : ''}
+      ${item.preview || listen || hasTheme(item) ? `<div class="scene-actions" ${n()}>${hasTheme(item) ? `<button class="btn play-btn" data-theme="${esc(item.theme)}" data-aura="${esc(item.aura || '')}" data-on=" Тема: «${esc(item.theme)}»" data-off=" Тема героя: «${esc(item.theme)}»" aria-pressed="false">${ico('note')} Тема героя: «${esc(item.theme)}»</button>` : ''}${item.preview ? `<button class="btn play-btn" data-play="${esc(item.title)}">${playing === item ? ico('pause') + ' Пауза' : ico('play') + ' Слушать отрывок'}</button>` : ''}${listen}</div>` : ''}
       ${item.clip ? `<div class="clip" ${n()}><p class="kicker">Клип · фрагмент</p><video src="${esc(item.clip)}" poster="${esc(item.clipPoster || item.img || '')}" controls playsinline preload="none"></video></div>` : ''}
       ${item.lyrics ? `<div class="lyrics" ${n()}>${esc(item.lyrics)}</div>` : ''}
       ${Object.keys(TYPES).filter(rt => rel[rt]?.size).map(rt => `
@@ -1092,6 +1155,12 @@ els.nav = $('#nav'); els.fuse = $('.fuse'); els.track = $('#chron-track');
 initSplash(); initHero(); initPrologue(); initCharacters(); initChronicle(); initEvents(); initMap(); initOracle(); initSongs(); initEntry(); initObservers();
 watchVideos();
 $('#year').textContent = new Date().getFullYear();
+// новая песня: точка у «Песни» в меню и плашка на первом экране (newDays дней после выхода)
+const fresh = D.songs.filter(s => s.isNew);
+if (fresh.length) {
+  $('.nav-links a[href="#songs"]').classList.add('has-new');
+  $('.hero-copy .btn').insertAdjacentHTML('afterend', fresh.map(s => `<button class="news" ${openAttr(s)}><span class="news-dot" aria-hidden="true"></span>Новая песня · «${esc(s.title)}»</button>`).join(''));
+}
 $('#finale-links').innerHTML = linkBtns(D.links);
 $('#songs-links').innerHTML = linkBtns(D.links, undefined, ['yandex', 'vk']);
 $('#nav-social').innerHTML = Object.keys(LINK_NAMES).filter(k => D.links?.[k] && k !== 'vk')
