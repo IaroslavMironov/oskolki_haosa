@@ -9,7 +9,8 @@
   <meta property="og:type" content="website">
   <meta property="og:title" content="Осколки хаоса — Кодекс">
   <meta property="og:description" content="Тёмный паган-фолк-рок. Лор, персонажи, хроника, карта земель и песни.">
-  <meta property="og:image" content="cover.jpg">
+  <meta property="og:url" content="https://oskolkihaosa.ru/">
+  <meta property="og:image" content="https://oskolkihaosa.ru/cover.jpg">
   <meta name="twitter:card" content="summary_large_image">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%2307060a'/%3E%3Cpath d='M12 44 L8 20 L21 31 L32 12 L43 31 L56 20 L52 44 Z' fill='none' stroke='%23ff2d95' stroke-width='4' stroke-linejoin='round'/%3E%3C/svg%3E">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -51,7 +52,7 @@
     <a href="#oracle">Гадание</a>
     <a href="#songs">Песни</a>
   </div>
-  <div class="nav-social"><button class="sound-toggle" id="sound-toggle"><i></i><i></i><i></i><i></i></button><span id="nav-social"></span></div>
+  <div class="nav-social"><span class="vol-wrap"><button class="vol-btn" id="vol-btn" aria-label="Громкость" aria-expanded="false" title="Громкость"><svg class="ic" aria-hidden="true"><use href="#i-vol"/></svg></button><span class="vol-pop" id="vol-pop" hidden><input type="range" id="vol" min="0" max="1" step="0.05" aria-label="Громкость музыки"></span></span><button class="sound-toggle" id="sound-toggle"><i></i><i></i><i></i><i></i></button><span id="nav-social"></span></div>
 </nav>
 
 <main id="top">
@@ -225,6 +226,7 @@
     <path fill="#000" d="M13.4 18.5h2.1V5.5h-3.05c-3.07 0-4.69 1.58-4.69 3.9 0 1.86.89 2.95 2.47 4.09L7.5 18.5h2.27l3.06-4.57-1.06-.71c-1.29-.87-1.91-1.55-1.91-3.01 0-1.29.9-2.16 2.63-2.16h.91V18.5Z"/>
   </symbol>
   <!-- play/пауза/нота — векторные: символ ▶ на Android рисуется цветным эмодзи -->
+  <symbol id="i-vol" viewBox="0 0 24 24"><path d="M4 9.2h3.6L12.5 5v14l-4.9-4.2H4z"/><path class="vol-w" d="M15.6 9a4.2 4.2 0 0 1 0 6M18.2 6.4a8 8 0 0 1 0 11.2" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></symbol>
   <symbol id="i-play" viewBox="0 0 24 24"><path d="M7.5 4.6v14.8a1 1 0 0 0 1.52.85l11.6-7.4a1 1 0 0 0 0-1.7L9.02 3.75A1 1 0 0 0 7.5 4.6z"/></symbol>
   <symbol id="i-pause" viewBox="0 0 24 24"><rect x="6" y="4.5" width="4.2" height="15" rx="1.2"/><rect x="13.8" y="4.5" width="4.2" height="15" rx="1.2"/></symbol>
   <symbol id="i-note" viewBox="0 0 24 24"><path d="M9.5 18V5.6l10-2.2V16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="7" cy="18" r="2.6"/><circle cx="17" cy="16" r="2.6"/></symbol>

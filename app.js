@@ -337,6 +337,27 @@ function initCharacters() {
    У каждой песни свой <audio>: на ПК темы подгружаются заранее, поэтому звук стартует сразу.
    Раньше один элемент менял src при каждом наведении: первая попытка не успевала загрузиться,
    прерывалась уходом мыши — и мы ошибочно показывали «браузер заблокировал звук». */
+/* ── громкость сайта: ползунок в шапке, запоминается в браузере.
+   Звук, пущенный через анализатор, приглушаем общим усилителем (на iPhone громкость самого элемента не меняется),
+   остальной (клип, звук до первого касания) — громкостью элемента. */
+let VOL = 1;
+try { const v = parseFloat(localStorage.getItem('codex-volume')); if (v >= 0 && v <= 1) VOL = v; } catch {}
+const volOf = a => a._src ? 1 : VOL; // во сколько раз приглушать сам элемент
+function initVolume() {
+  const btn = $('#vol-btn'), pop = $('#vol-pop'), range = $('#vol');
+  const paint = () => { range.value = VOL; range.style.setProperty('--v', VOL * 100 + '%'); btn.classList.toggle('mute', VOL === 0); };
+  range.addEventListener('input', () => {
+    VOL = +range.value; paint();
+    try { localStorage.setItem('codex-volume', VOL); } catch {}
+    if (beat.gain) beat.gain.gain.value = VOL;
+    player.volume = volOf(player); Theme.volume();
+    $$('.clip video').forEach(v => v.volume = VOL);
+  });
+  btn.addEventListener('click', e => { e.stopPropagation(); pop.hidden = !pop.hidden; btn.setAttribute('aria-expanded', !pop.hidden); });
+  document.addEventListener('click', e => { if (!pop.hidden && !pop.contains(e.target)) { pop.hidden = true; btn.setAttribute('aria-expanded', false); } });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') { pop.hidden = true; btn.setAttribute('aria-expanded', false); } });
+  paint();
+}
 const Theme = (() => {
   const pool = new Map();
   const get = song => {
@@ -387,7 +408,7 @@ const Theme = (() => {
     mark(card, a.readyState >= 3 ? '♪ ' + song.title : '♪ загрузка…');
     a.play().then(() => {
       if (cur !== a) return a.pause();
-      fade(a, .8, 300); mark(card, '♪ ' + song.title);
+      fade(a, .8 * volOf(a), 300); mark(card, '♪ ' + song.title);
     }).catch(err => {
       if (cur !== a || err.name === 'AbortError') return; // прервали сами (ушли с карточки) — это не ошибка
       mark(card, err.name === 'NotAllowedError' ? '🔇 Нажми ♪ — браузер ждёт касания' : '⚠ Не удалось загрузить');
@@ -406,6 +427,7 @@ const Theme = (() => {
     release(root) { if (curCard && root.contains(curCard)) { stop(); return true; } return false; },
     toggle(song, card) { if (curCard === card && cur && !cur.paused) stop(); else start(song, card, true); },
     stop,
+    volume() { if (cur && !cur.paused) { cancelAnimationFrame(cur._fade); cur.volume = .8 * volOf(cur); } },
     active: () => cur && !cur.paused ? cur : null,
     source: () => cur && !cur.paused ? curCard : null, // карточка (или кнопка в кодексе), откуда звучит тема
     preload(songs) { songs.forEach(s => s?.preview && get(s)); },
@@ -649,13 +671,17 @@ function initMap() {
 
 /* ═══════════ Гадание ═══════════ */
 function initOracle() {
-  $('.oracle-portrait').innerHTML = imgTag('vorozheya.jpg', 'Ворожея', '(max-width: 900px) 260px, 380px');
+  $('.oracle-portrait').innerHTML = imgTag(find('characters', 'Ворожея')?.img || 'vorozheya.jpg', 'Ворожея', '(max-width: 900px) 260px, 380px');
   const box = $('#ocards'), again = $('#oracle-again');
+  // честное перемешивание (Фишер–Йетс); sort(() => Math.random() - .5) выдаёт одни карты чаще других
+  const shuffle = a => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+  // рубашки: 5 рисунков (opt/card-back-N.webp), на раздачу — три разных
+  const backs = () => shuffle([0, 1, 2, 3, 4]).slice(0, 3).map(n => `--back:url(opt/card-back-${n}.webp)`);
   if (!D.prophecies?.length) { // раздел запечатан до выхода трека
     $('#oracle').classList.add('sealed');
-    box.innerHTML = [0, 1, 2].map(i => `
-      <button class="ocard" style="--i:${i}" aria-label="Карта запечатана">
-        <span class="ocard-face ocard-back"><svg aria-hidden="true"><use href="#eye"/></svg><i class="ocard-lock"></i></span>
+    box.innerHTML = backs().map((b, i) => `
+      <button class="ocard" style="--i:${i};${b}" aria-label="Карта запечатана">
+        <span class="ocard-face ocard-back"><i class="ocard-lock"></i></span>
       </button>`).join('');
     const msg = $('#oracle-msg');
     box.addEventListener('click', e => {
@@ -689,8 +715,6 @@ function initOracle() {
     try { localStorage.setItem(KEY, v); } catch {}
     document.cookie = `codex-oracle=${encodeURIComponent(v)}; max-age=${60 * 864e2}; path=/; SameSite=Lax`;
   };
-  // честное перемешивание (Фишер–Йетс); sort(() => Math.random() - .5) выдаёт одни карты чаще других
-  const shuffle = a => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
   const untilMidnight = () => {
     const m = Math.ceil((new Date().setHours(24, 0, 0, 0) - Date.now()) / 6e4), h = Math.floor(m / 60);
     return h ? `${h} ч ${m % 60} мин` : `${m} мин`;
@@ -714,9 +738,10 @@ function initOracle() {
   const deal = (flipLast) => {
     box.classList.remove('drawn');
     const ids = flipLast != null ? [flipLast, ...draw3().filter(i => i !== flipLast).slice(0, 2)] : draw3();
+    const bk = backs();
     box.innerHTML = ids.map((p, i) => `
-      <button class="ocard" style="--i:${i}" data-p="${p}" aria-label="Вытянуть карту ${i + 1}">
-        <span class="ocard-face ocard-back"><svg aria-hidden="true"><use href="#eye"/></svg></span>
+      <button class="ocard" style="--i:${i};${bk[i]}" data-p="${p}" aria-label="Вытянуть карту ${i + 1}">
+        <span class="ocard-face ocard-back"></span>
         <span class="ocard-face ocard-front"><svg aria-hidden="true"><use href="#eye"/></svg><b>${esc(P[p].card)}</b></span>
       </button>`).join('');
     if (flipLast == null) { reading.classList.remove('show'); reading.innerHTML = ''; }
@@ -768,7 +793,7 @@ function initSongs() {
   $('#now-toggle').addEventListener('click', () => playing && togglePlay(playing));
   $('#now-title').addEventListener('click', e => playing && openEntry(playing, e.clientX, e.clientY));
   // клип со звуком глушит отрывок
-  document.addEventListener('play', e => { if (!e.target.closest?.('.clip')) return; Theme.stop(true); if (playing) { player.pause(); setPlaying(null); } }, true);
+  document.addEventListener('play', e => { if (!e.target.closest?.('.clip')) return; e.target.volume = VOL; Theme.stop(true); if (playing) { player.pause(); setPlaying(null); } }, true);
 }
 function setPlaying(song) {
   playing = song;
@@ -788,7 +813,7 @@ function togglePlay(song) {
   initAnalyser(); hookAudio(player, true);
   Theme.stop();
   beat.avg = null; beat.n = 0;
-  player.src = song.preview; player._beats = window.BEATS?.[song.preview]; setPlaying(song);
+  player.src = song.preview; player._beats = window.BEATS?.[song.preview]; player.volume = volOf(player); setPlaying(song);
   player.play().catch(e => { if (e.name !== 'AbortError' && playing === song) setPlaying(null); }); // не загрузилось — не показываем «играет»
 }
 
@@ -802,7 +827,8 @@ function initAnalyser() {
   try {
     const ctx = beat.ctx = new (window.AudioContext || window.webkitAudioContext)();
     beat.an = ctx.createAnalyser(); beat.an.fftSize = 256; beat.an.smoothingTimeConstant = .7;
-    beat.an.connect(ctx.destination);
+    beat.gain = ctx.createGain(); beat.gain.gain.value = VOL; // анализатор — до громкости: искры не тускнеют, если сделать тише
+    beat.an.connect(beat.gain); beat.gain.connect(ctx.destination);
     beat.data = new Uint8Array(beat.an.frequencyBinCount);
     beat.bar = $('#now-bar');
   } catch { /* без анализатора просто играет */ }
@@ -1162,7 +1188,7 @@ function initObservers() {
 
 /* ═══════════ Старт ═══════════ */
 els.nav = $('#nav'); els.fuse = $('.fuse'); els.track = $('#chron-track');
-initSplash(); initHero(); initPrologue(); initCharacters(); initChronicle(); initEvents(); initMap(); initOracle(); initSongs(); initEntry(); initObservers();
+initSplash(); initHero(); initPrologue(); initCharacters(); initChronicle(); initEvents(); initMap(); initOracle(); initSongs(); initVolume(); initEntry(); initObservers();
 watchVideos();
 $('#year').textContent = new Date().getFullYear();
 // новая песня: точка у «Песни» в меню и плашка на первом экране (newDays дней после выхода)
