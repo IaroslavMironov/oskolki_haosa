@@ -21,8 +21,9 @@ const FACTION = { otryad: 'Отряд', dvor: 'Двор', teni: 'Тени' };
 const ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'XII', 'XIII', 'XIV', 'XV'];
 
 /* ── выход новых песен (D.releases): до даты всё помеченное release скрыто, после — открыто само;
-   newDays дней после выхода — «Новое». С ?preview в адресе — посмотреть заранее, как будет после выхода ── */
-const PREVIEW = new URLSearchParams(location.search).has('preview');
+   newDays дней после выхода — «Новое». С ?preview в адресе — посмотреть заранее, как будет после выхода.
+   Работает только на своём компьютере и в домашней сети (localhost, 192.168.…), на настоящем сайте — нет ── */
+const PREVIEW = new URLSearchParams(location.search).has('preview') && /^(localhost|127\.|192\.168\.|10\.)/.test(location.hostname);
 const relState = key => {
   const r = D.releases?.[key]; if (!r) return { out: true, fresh: false };
   const at = Date.parse(r.date || ''), out = PREVIEW || at <= Date.now(); // пустая дата → NaN → скрыто
