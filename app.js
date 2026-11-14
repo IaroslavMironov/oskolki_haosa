@@ -70,6 +70,7 @@ const icon = k => LINK_ICON[k] ? `<svg class="li" aria-hidden="true"><use href="
 // keys — какие ссылки показывать (на странице песни сообщество не нужно)
 const linkBtns = (links, cls = 'btn ghost listen', keys = Object.keys(LINK_NAMES)) => keys.filter(k => links?.[k])
   .map(k => `<a class="${cls}" href="${esc(links[k])}" target="_blank" rel="noopener">${icon(k)}${LINK_NAMES[k]} <span aria-hidden="true">↗</span></a>`).join('');
+const ico = n => `<svg class="ic" aria-hidden="true"><use href="#i-${n}"/></svg>`;
 const openAttr = item => `data-open="${item.type}|${esc(item.title)}"`;
 
 /* общее состояние кадра: всё, что зависит от прокрутки, считаем только когда она изменилась */
@@ -97,7 +98,7 @@ function breakSeal(e) {
   splash.classList.add('go');
   inner.classList.add('settled');
   seal.classList.add('broken');
-  Theme.unlock(); // клик по печати — жест пользователя, разрешаем звук
+  Theme.unlock(); initAnalyser(); // клик по печати — жест пользователя, разрешаем звук и анализатор
   const enter = () => {
     document.body.classList.remove('locked');
     document.body.classList.add('entered');
@@ -235,12 +236,13 @@ function initPrologue() {
 /* ═══════════ Персонажи ═══════════ */
 function initCharacters() {
   $('#cards').innerHTML = D.characters.map((c, i) => `
-    <article class="card" ${openAttr(c)} data-faction="${c.faction}" data-reveal style="--i:${i % 4}" tabindex="0" aria-label="${esc(c.title)} — открыть в кодексе">
+    <article class="card" ${openAttr(c)} data-faction="${c.faction}" data-reveal style="--i:${i % 4};--aura:${esc(c.aura || '#ff7a2e')}" data-aura="${esc(c.aura || '#ff7a2e')}" tabindex="0" aria-label="${esc(c.title)} — открыть в кодексе">
+      <span class="card-glow" aria-hidden="true"></span>
       <div class="card-in">
-        <div class="card-media">${media(c, '', fine ? 'hover' : 'one', SIZES.card)}</div>
+        <div class="card-media">${c.video ? imgTag(c.img, c.title, SIZES.card) : ''}${media(c, '', fine ? 'hover' : 'one', SIZES.card)}</div>
         <div class="card-glare"></div>
         <div class="card-frame"></div>
-        ${c.theme ? `<span class="card-sing" aria-hidden="true"></span><button class="card-play" data-theme="${esc(c.theme)}" aria-pressed="false" aria-label="Слушать тему: «${esc(c.theme)}»">♪</button>` : ''}
+        ${c.theme ? `<span class="card-sing" aria-hidden="true"></span><button class="card-play" data-theme="${esc(c.theme)}" data-on="" data-off="" aria-pressed="false" aria-label="Слушать тему: «${esc(c.theme)}»">${ico('note')}</button>` : ''}
         <div class="card-body">
           <span class="card-tag">${esc(FACTION[c.faction] || '')}${c.role ? ' · ' + esc(c.role) : ''}</span>
           <h3>${esc(c.title)}</h3>
@@ -263,21 +265,14 @@ function initCharacters() {
   });
 
   // Телефон: четыре видео сразу дают ~50% рывков на слабом CPU — играет только самое видимое
-  // Играет та карточка, которой коснулся пальцем (в ряду из двух видимость одинаковая — раньше всегда побеждала левая).
-  // Пока ни одной не касались или тронутая ушла с экрана — самая видимая.
-  if (!fine) {
-    const ratio = new Map(); let touched = null;
-    const choose = () => {
-      let top = touched && ratio.get(touched) > .3 ? touched : null, best = .5;
-      if (!top) ratio.forEach((r, c) => { if (r > best && $('video', c)) { best = r; top = c; } });
-      ratio.forEach((r, c) => { const v = $('video', c); if (v) c === top ? v.play().catch(() => {}) : v.pause(); });
-    };
-    const pick = new IntersectionObserver(es => { es.forEach(e => ratio.set(e.target, e.intersectionRatio)); choose(); }, { threshold: [0, .25, .5, .75, 1] });
-    $$('#cards .card').forEach(c => {
-      pick.observe(c);
-      c.addEventListener('touchstart', () => { if (touched !== c) { touched = c; choose(); } }, { passive: true });
-    });
-  }
+  // Телефон: видео героя оживает только вместе с его темой — по нажатию ♪ (см. Theme: mark/unmark), а не от касаний при листании.
+
+  // видео лежит поверх картинки героя и видно, только пока играет: на паузе плавно растворяется
+  // (раньше оставался стоп-кадр), а через полсекунды перематывается в начало — следующий показ начнётся с картинки
+  document.querySelectorAll('#cards video').forEach(v => {
+    v.addEventListener('playing', () => v.classList.add('on'));
+    v.addEventListener('pause', () => { v.classList.remove('on'); setTimeout(() => { if (v.paused) v.currentTime = 0; }, 500); });
+  });
 
   // ПК: подгружаем темы заранее, когда раздел персонажей на подходе — тогда звук при наведении стартует сразу
   if (fine) {
@@ -329,10 +324,10 @@ const Theme = (() => {
   const pool = new Map();
   const get = song => {
     let a = pool.get(song);
-    if (!a) { a = new Audio(); a.preload = fine ? 'auto' : 'none'; a.src = song.preview; a.onended = () => cur === a && stop(true); pool.set(song, a); }
+    if (!a) { a = new Audio(); a.preload = fine ? 'auto' : 'none'; a.src = song.preview; a._beats = window.BEATS?.[song.preview]; a.onended = () => cur === a && stop(true); pool.set(song, a); }
     return a;
   };
-  let timer = 0, cur = null, curCard = null, on = true;
+  let timer = 0, cur = null, curCard = null, on = true, pend = null;
   try { on = localStorage.getItem('codex-sound') !== 'off'; } catch {}
   const fade = (a, to, ms, done) => {
     cancelAnimationFrame(a._fade);
@@ -344,14 +339,18 @@ const Theme = (() => {
   const paint = () => { btn.classList.toggle('off', !on); btn.setAttribute('aria-pressed', on); btn.setAttribute('aria-label', on ? 'Выключить звук при наведении на героев' : 'Включить звук при наведении на героев'); btn.title = on ? 'Звук при наведении: вкл' : 'Звук при наведении: выкл'; };
   btn.addEventListener('click', () => { on = !on; try { localStorage.setItem('codex-sound', on ? 'on' : 'off'); } catch {} if (!on) stop(); paint(); });
   paint();
+  // card — карточка героя (кнопка ♪ внутри) или сама кнопка темы в кодексе; надписи кнопки — в data-on / data-off
+  const btnOf = card => card.matches('[data-theme]') ? card : $('.card-play', card);
   const mark = (card, text) => {
     const tag = $('.card-sing', card); if (tag) tag.textContent = text;
     card.classList.add('sing');
-    const b = $('.card-play', card); if (b) { b.textContent = '❚❚'; b.setAttribute('aria-pressed', 'true'); }
+    const b = btnOf(card); if (b) { b.innerHTML = ico('pause') + b.dataset.on; b.setAttribute('aria-pressed', 'true'); }
+    if (card.classList.contains('card')) $('.card-media video', card)?.play().catch(() => {}); // герой оживает вместе со своей темой
   };
   const unmark = card => {
     card.classList.remove('sing');
-    const b = $('.card-play', card); if (b) { b.textContent = '♪'; b.setAttribute('aria-pressed', 'false'); }
+    const b = btnOf(card); if (b) { b.innerHTML = ico('note') + b.dataset.off; b.setAttribute('aria-pressed', 'false'); }
+    if (card.classList.contains('card')) $('.card-media video', card)?.pause();
   };
   function stop(fast) {
     clearTimeout(timer);
@@ -364,6 +363,7 @@ const Theme = (() => {
     if (playing && !player.paused) { if (!tap) return; player.pause(); setPlaying(null); } // наведение не перебивает песню из плеера
     stop(true);
     const a = get(song);
+    hookAudio(a, tap); // тема тоже двигает эквалайзер и искры
     cur = a; curCard = card;
     try { a.currentTime = 1.1; } catch {} // пропускаем вшитое в отрывок затухание
     a.volume = 0;
@@ -377,10 +377,20 @@ const Theme = (() => {
     });
   }
   return {
-    hover(song, card) { if (!on) return; clearTimeout(timer); timer = setTimeout(() => start(song, card, false), 220); },
-    leave(card) { clearTimeout(timer); if (curCard === card) stop(); },
+    hover(song, card) { if (!on) return; clearTimeout(timer); pend = { song, card }; timer = setTimeout(() => { pend = null; start(song, card, false); }, 220); },
+    leave(card) { clearTimeout(timer); pend = null; if (curCard === card) stop(); },
+    // открыли кодекс героя: тема с карточки «переезжает» на кнопку в кодексе и продолжает играть
+    adopt(card, btn) {
+      if (pend?.card === card) { clearTimeout(timer); const s = pend.song; pend = null; return start(s, btn, false); }
+      if (curCard !== card || !cur) return;
+      unmark(card); curCard = btn; mark(btn, '');
+    },
+    // кнопка темы в кодексе исчезает (закрыли окно / перелистнули): playing — играла ли она
+    release(root) { if (curCard && root.contains(curCard)) { stop(); return true; } return false; },
     toggle(song, card) { if (curCard === card && cur && !cur.paused) stop(); else start(song, card, true); },
     stop,
+    active: () => cur && !cur.paused ? cur : null,
+    source: () => cur && !cur.paused ? curCard : null, // карточка (или кнопка в кодексе), откуда звучит тема
     preload(songs) { songs.forEach(s => s?.preview && get(s)); },
     // на каждом касании/клике «разблокируем» ещё не разблокированные элементы (нужно Safari)
     unlock() {
@@ -665,20 +675,20 @@ function initOracle() {
 
 /* ═══════════ Песни ═══════════ */
 const player = new Audio();
-let playing = null;
+let playing = null, songCover = null;
 function initSongs() {
   $('#song-list').innerHTML = D.songs.map((s, i) => `
     <li class="song" data-i="${i}" ${openAttr(s)} tabindex="0">
       <span class="song-num">${ROMAN[i] || i + 1}</span>
       <img class="song-thumb" src="${esc(best(s.img, 120))}" alt="" loading="lazy" decoding="async">
       <span><span class="song-title">${esc(s.title)}</span><span class="song-sub">${esc(s.text)}</span></span>
-      <span class="song-right">${s.clip ? '<span class="song-badge hot">Клип</span>' : ''}${s.lyrics ? '<span class="song-badge">Текст</span>' : ''}<span class="eq" aria-hidden="true"><i></i><i></i><i></i><i></i></span>${s.preview ? `<button class="song-play" data-play="${esc(s.title)}" aria-label="Слушать отрывок «${esc(s.title)}»">▶</button>` : ''}</span>
+      <span class="song-right">${s.clip ? '<span class="song-badge hot">Клип</span>' : ''}${s.lyrics ? '<span class="song-badge">Текст</span>' : ''}<span class="eq" aria-hidden="true"><i></i><i></i><i></i><i></i></span>${s.preview ? `<button class="song-play" data-play="${esc(s.title)}" aria-label="Слушать отрывок «${esc(s.title)}»">${ico('play')}</button>` : ''}</span>
     </li>`).join('');
   const sleeve = $('#sleeve'), label = $('#vinyl-label'), wrap = $('.songs');
-  const setCover = s => { const u = `url("${best(s.img, 480)}")`; sleeve.style.backgroundImage = u; label.style.backgroundImage = u; };
+  const setCover = songCover = s => { const u = `url("${best(s.img, 480)}")`; sleeve.style.backgroundImage = u; label.style.backgroundImage = u; };
   setCover(D.songs[0]);
   $$('.song').forEach(row => {
-    row.addEventListener('pointerenter', () => { setCover(D.songs[row.dataset.i]); wrap.classList.add('hovering'); });
+    row.addEventListener('pointerenter', e => { if (e.pointerType !== 'mouse') return; setCover(D.songs[row.dataset.i]); wrap.classList.add('hovering'); });
     row.addEventListener('pointerleave', () => wrap.classList.remove('hovering'));
   });
   player.addEventListener('ended', () => setPlaying(null));
@@ -689,10 +699,11 @@ function initSongs() {
 }
 function setPlaying(song) {
   playing = song;
+  if (song) songCover?.(song); // обложка и пластинка — того трека, что играет
   $$('.song').forEach(r => r.classList.toggle('playing', !!song && D.songs[r.dataset.i] === song));
   $$('[data-play]').forEach(b => {
     const on = song && b.dataset.play === song.title, ic = b.classList.contains('song-play');
-    b.textContent = ic ? (on ? '❚❚' : '▶') : (on ? '❚❚ Пауза' : '▶ Слушать отрывок');
+    b.innerHTML = ico(on ? 'pause' : 'play') + (ic ? '' : on ? ' Пауза' : ' Слушать отрывок');
   });
   const now = $('#now');
   now.classList.toggle('on', !!song);
@@ -701,39 +712,102 @@ function setPlaying(song) {
 }
 function togglePlay(song) {
   if (playing === song) { player.pause(); setPlaying(null); return; }
-  initAnalyser();
+  initAnalyser(); hookAudio(player, true);
   Theme.stop();
   beat.avg = null; beat.n = 0;
-  player.src = song.preview; setPlaying(song);
+  player.src = song.preview; player._beats = window.BEATS?.[song.preview]; setPlaying(song);
   player.play().catch(e => { if (e.name !== 'AbortError' && playing === song) setPlaying(null); }); // не загрузилось — не показываем «играет»
 }
 
 /* ── музыка управляет светом: бас → искры, неон, эквалайзер ── */
 const beat = { an: null, data: null, v: 0, prev: 0, eq: null, bar: null };
+// один анализатор на всю музыку сайта: трек из плеера и темы героев.
+// Создаём на взломе печати (это касание — браузер разрешает звук), дальше только подключаем элементы.
 function initAnalyser() {
-  if (beat.an) { beat.ctx.resume(); return; }
+  if (beat.ctx) { if (beat.ctx.state !== 'running') beat.ctx.resume().catch(() => {}); return; }
   if (location.protocol === 'file:') return; // с file:// Chrome глушит звук через анализатор — играем без подсветки
   try {
     const ctx = beat.ctx = new (window.AudioContext || window.webkitAudioContext)();
-    const src = ctx.createMediaElementSource(player);
     beat.an = ctx.createAnalyser(); beat.an.fftSize = 256; beat.an.smoothingTimeConstant = .7;
-    src.connect(beat.an); beat.an.connect(ctx.destination);
+    beat.an.connect(ctx.destination);
     beat.data = new Uint8Array(beat.an.frequencyBinCount);
     beat.bar = $('#now-bar');
   } catch { /* без анализатора просто играет */ }
 }
+// пускаем звук элемента через анализатор (один раз навсегда). Без касания (наведение) — только если контекст уже
+// работает: подключённый к остановленному контексту элемент замолкает.
+function hookAudio(a, gesture) {
+  if (!beat.an || a._src || (!gesture && beat.ctx.state !== 'running')) return;
+  try { a._src = beat.ctx.createMediaElementSource(a); a._src.connect(beat.an); } catch { /* играет мимо анализатора */ }
+}
+const AURA = '#ff7a2e'; // цвет по умолчанию — угли
+// цвет песни: герой, чья это тема, иначе первый герой песни
+const auraOf = song => (D.characters.find(c => c.theme === song?.title) || find('characters', song?.characters?.[0]))?.aura || AURA;
+function musicSource() {
+  if (playing && !player.paused) {
+    // раздел песен на экране — искры из строки трека, иначе из мини-плеера (класс .off ставит наблюдатель — без замеров)
+    const row = !$('#songs').classList.contains('off') && $('.song.playing');
+    return { el: row || $('#now'), aura: auraOf(playing) };
+  }
+  const el = Theme.source();
+  return el ? { el, aura: el.closest('[data-aura]')?.dataset.aura || AURA } : null;
+}
+// --beat пишем не в корень страницы (это пересчёт стилей всего документа в каждом кадре), а только туда, где он нужен
+beat.level = 0; beat.pulse = 0; beat.mid = 0; beat.css = '';
+// только на два элемента без потомков — пересчёт стиля крошечный, а сама вспышка — прозрачность слоя
+const setBeat = s => { if (s === beat.css) return; beat.css = s; [$('.song.playing .song-play'), $('#vinyl-label')].forEach(e => e?.style.setProperty('--beat', s)); };
 function tickBeat() {
-  if (!beat.an || !playing || player.paused) { if (beat.v) { beat.v = 0; document.documentElement.style.setProperty('--beat', 0); } return 0; }
-  beat.an.getByteFrequencyData(beat.data);
-  const band = (a, b) => { let s = 0; for (let i = a; i < b; i++) s += beat.data[i]; return s / (b - a) / 255; };
-  const bass = band(1, 6);
-  beat.n = (beat.n || 0) + 1;
-  beat.avg = beat.avg == null ? bass : beat.avg + (bass - beat.avg) * (beat.n < 90 ? .2 : .03); // адаптивный порог: вспышки на ударах, а не постоянный гул
-  beat.v += (bass - beat.v) * .5;
-  const v = clamp((beat.v - beat.avg) * 8);
-  document.documentElement.style.setProperty('--beat', v.toFixed(2));
-  if (v - beat.prev > .22 && v > .55 && !reduce) for (let i = 0; i < 3; i++) Embers.burst(Math.random() * innerWidth, innerHeight + 5, 5);
-  beat.prev = v;
+  const src = playing && !player.paused ? player : Theme.active();
+  if (!src) {
+    if (beat.v) { beat.v = 0; setBeat('0'); }
+    if (beat.glow) { beat.glow.style.opacity = ''; beat.glow._o = ''; beat.glow = null; }
+    beat.level = beat.level > .005 ? beat.level * .94 : 0; // атмосфера успокаивается плавно
+    beat.pulse *= .85;
+    return 0;
+  }
+  beat.level += (1 - beat.level) * .05;
+  // Удары — по заранее найденным долям (opt/beats.js, tools/beats.py): срабатывают ровно по времени
+  // воспроизведения, не позже. Анализатор (если подключён) — только для мягкого «дыхания» между ударами.
+  let hit = false, power = 1, v = 0, band = null;
+  const grid = src._beats;
+  if (grid) {
+    const ct = src.currentTime - (beat.ctx?.outputLatency || 0);
+    if (src !== beat.gSrc || ct < beat.gT - .05 || ct - beat.gT > .6) { // новая песня или перемотка — ищем место в сетке
+      beat.gSrc = src; beat.gi = grid.findIndex(b => b[0] > ct); if (beat.gi < 0) beat.gi = grid.length;
+    }
+    while (beat.gi < grid.length && grid[beat.gi][0] <= ct) { hit = true; power = .4 + grid[beat.gi][1] * .6; beat.gi++; }
+    beat.gT = ct;
+  }
+  if (beat.an && src._src) {
+    beat.an.getByteFrequencyData(beat.data);
+    band = (a, b) => { let x = 0; for (let i = a; i < b; i++) x += beat.data[i]; return x / (b - a) / 255; };
+    const bass = band(1, 6);
+    beat.mid += (band(8, 40) - beat.mid) * .2;
+    beat.n = (beat.n || 0) + 1;
+    beat.avg = beat.avg == null ? bass : beat.avg + (bass - beat.avg) * (beat.n < 90 ? .2 : .03);
+    beat.v += (bass - beat.v) * .5;
+    v = clamp((beat.v - beat.avg) * 8);
+    if (!grid) { // песни без сетки: удар = резкий скачок «барабанов» (бочка + малый)
+      const drums = bass + band(6, 20) * .6, flux = Math.max(0, drums - (beat.lastDrums ?? drums)); beat.lastDrums = drums;
+      beat.fluxAvg = (beat.fluxAvg ?? flux) + (flux - (beat.fluxAvg ?? flux)) * .06;
+      hit = flux > beat.fluxAvg * 1.9 + .015 && performance.now() - (beat.kickT || 0) > 200;
+    }
+  }
+  beat.pulse = hit ? Math.max(power, beat.pulse) : beat.pulse * (fine ? .9 : .88); // вспышка сразу, гаснет мягко
+  setBeat(Math.max(v, beat.pulse * .8).toFixed(2));
+  // откуда звучит и каким цветом: карточка героя (его аура) или строка трека / мини-плеер
+  const ms = musicSource();
+  Embers.aura = ms?.aura || null;
+  beat.srcEl = ms?.el || null;
+  const g = ms?.el.classList.contains('card') ? $('.card-glow', ms.el) : null;
+  if (beat.glow !== g) { if (beat.glow) beat.glow.style.opacity = ''; beat.glow = g; }
+  if (g) { const o = (.25 + beat.pulse * .75).toFixed(2); if (o !== g._o) { g._o = o; g.style.opacity = o; } } // рамка карточки пульсирует
+  if (hit && !reduce) {
+    beat.kickT = performance.now();
+    Embers.kick(power);
+    if (ms && !S.modal) Embers.emit(beat.rect || ms.el.getBoundingClientRect(), ms.aura, Math.round((fine ? 24 : 13) * power));
+  }
+  if (src !== player || !band) return v;
   if (beat.eq) [band(1, 4), band(4, 12), band(12, 30), band(30, 70)].forEach((b, i) => beat.eq.children[i].style.transform = `scaleY(${(.15 + b * .95).toFixed(2)})`);
   if (beat.bar && player.duration) beat.bar.style.transform = `scaleX(${(player.currentTime / player.duration).toFixed(3)})`;
   return v;
@@ -767,7 +841,7 @@ function renderEntry(item) {
       ${item.epithet ? `<p class="entry-ep" ${n()}>${esc(item.epithet)}</p>` : ''}
       ${item.quote ? `<blockquote class="entry-quote" ${n()}>${esc(item.quote)}</blockquote>` : ''}
       <p class="entry-text" ${n()}>${esc(item.text)}</p>
-      ${item.preview || listen ? `<div class="scene-actions" ${n()}>${item.preview ? `<button class="btn play-btn" data-play="${esc(item.title)}">${playing === item ? '❚❚ Пауза' : '▶ Слушать отрывок'}</button>` : ''}${listen}</div>` : ''}
+      ${item.preview || listen || item.theme ? `<div class="scene-actions" ${n()}>${item.theme ? `<button class="btn play-btn" data-theme="${esc(item.theme)}" data-aura="${esc(item.aura || '')}" data-on=" Тема: «${esc(item.theme)}»" data-off=" Тема героя: «${esc(item.theme)}»" aria-pressed="false">${ico('note')} Тема героя: «${esc(item.theme)}»</button>` : ''}${item.preview ? `<button class="btn play-btn" data-play="${esc(item.title)}">${playing === item ? ico('pause') + ' Пауза' : ico('play') + ' Слушать отрывок'}</button>` : ''}${listen}</div>` : ''}
       ${item.clip ? `<div class="clip" ${n()}><p class="kicker">Клип · фрагмент</p><video src="${esc(item.clip)}" poster="${esc(item.clipPoster || item.img || '')}" controls playsinline preload="none"></video></div>` : ''}
       ${item.lyrics ? `<div class="lyrics" ${n()}>${esc(item.lyrics)}</div>` : ''}
       ${Object.keys(TYPES).filter(rt => rel[rt]?.size).map(rt => `
@@ -788,15 +862,22 @@ function openEntry(item, x, y) {
   if (wasOpen) {
     const body = $('#entry-body');
     body.classList.add('swap');
-    setTimeout(() => { renderEntry(item); body.classList.remove('swap'); restartAnim(); }, 300);
+    setTimeout(() => {
+      const was = Theme.release(body); // тема играла — у следующего героя заиграет его
+      renderEntry(item); body.classList.remove('swap'); restartAnim();
+      const tb = was && $('[data-theme]', body); if (tb) Theme.toggle(find('songs', tb.dataset.theme), tb);
+    }, 300);
     return;
   }
   entry.back = document.activeElement;
   renderEntry(item);
+  // открыли героя с карточки — его тема продолжает играть уже в кодексе
+  const tb = item.type === 'characters' && $('#entry-body [data-theme]');
+  if (tb) Theme.adopt($$('#cards .card')[D.characters.indexOf(item)], tb);
   el.style.setProperty('--cx', `${x ?? innerWidth / 2}px`);
   el.style.setProperty('--cy', `${y ?? innerHeight / 2}px`);
   el.hidden = false;
-  S.modal = true;
+  S.modal = true; Embers.paused(true); // окно закрывает искры — не тратим на них кадры
   // на телефоне не трогаем overflow у <html> (на Android это дёргает адресную строку и страницу) —
   // прокрутку держит overscroll-behavior: contain у самого окна кодекса
   if (fine) { document.documentElement.classList.add('modal'); setBehind(true); } // Tab не уходит за окно
@@ -810,8 +891,9 @@ function closeEntry() {
   if (el.hidden) return;
   el.classList.remove('open');
   document.documentElement.classList.remove('modal'); setBehind(false);
-  S.modal = false; S.dirty = true;
+  S.modal = false; S.dirty = true; Embers.paused(false);
   $$('video', el).forEach(v => v.pause());
+  Theme.release(el); // закрыли кодекс — тема героя затихает
   entry.back?.focus?.({ preventScroll: true });
   setTimeout(() => { if (!el.classList.contains('open')) { el.hidden = true; $('#entry-body').innerHTML = ''; } }, 900);
 }
@@ -836,10 +918,11 @@ function openFull(src) {
 $('#lightbox').addEventListener('click', e => e.currentTarget.hidden = true);
 
 /* ── общие клики/клавиши ── */
-document.addEventListener('pointerdown', () => Theme.unlock(), { passive: true });
+// каждое касание: разблокируем звук; если телефон усыпил аудиоконтекст (свернули браузер) — будим
+document.addEventListener('pointerdown', () => { Theme.unlock(); if (beat.ctx && beat.ctx.state !== 'running') beat.ctx.resume().catch(() => {}); }, { passive: true });
 document.addEventListener('click', e => {
   const th = e.target.closest('[data-theme]');
-  if (th) { e.stopPropagation(); return Theme.toggle(find('songs', th.dataset.theme), th.closest('.card')); }
+  if (th) { e.stopPropagation(); return Theme.toggle(find('songs', th.dataset.theme), th.closest('.card') || th); }
   const full = e.target.closest('[data-full]');
   if (full) { e.stopPropagation(); return openFull(full.dataset.full); }
   const play = e.target.closest('[data-play]');
@@ -873,77 +956,51 @@ function chaos() {
   setTimeout(() => document.body.classList.remove('glitch'), 1300);
 }
 
-/* ═══════════ Искры (canvas) ═══════════ */
+/* ═══════════ Искры (canvas) ═══════════
+   Сама симуляция — в embers.js. Здесь — только «пульт»: размеры, события, музыка.
+   Если браузер умеет — искры живут в отдельном потоке и не зависят от прокрутки (раньше на телефоне замирали). */
 const Embers = (() => {
-  const cv = $('#embers'), ctx = cv.getContext('2d');
-  let W, H, parts = [];
-  const COLORS = { ember: [[255, 150, 60], [255, 190, 110], [255, 45, 149]], blood: [[220, 30, 50], [150, 10, 30], [255, 90, 70]], violet: [[165, 140, 255], [220, 200, 255], [255, 122, 195]] };
-  // цвета заранее строками — без мусора в каждом кадре
-  const PAL = Object.fromEntries(Object.entries(COLORS).map(([k, list]) => [k, list.map(([r, g, b]) => [`rgb(${r},${g},${b})`, `rgb(${Math.min(255, r + 60)},${Math.min(255, g + 60)},${Math.min(255, b + 60)})`])]));
-  const resize = () => {
-    // адресная строка на телефоне меняет только высоту — не пересоздаём буфер (это дорого и даёт мигание)
-    if (!fine && W === innerWidth && H >= innerHeight) return;
+  const cv = $('#embers');
+  let W = 0, H = 0, send = () => {}, local = null;
+  const size = () => {
     // искры — мягкие пятна, им не нужна ретина: 1–1.25 пикселя на точку в 2–4 раза дешевле
     const dpr = Math.min(fine ? 1.25 : 1, devicePixelRatio || 1);
     W = innerWidth; H = Math.max(innerHeight, fine ? 0 : H || 0);
-    cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
-    cv.style.height = H + 'px';
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    cv.style.height = H + 'px'; // на телефоне буфер выше экрана (адресная строка) — иначе картинку сплющивало
+    return [W, H, dpr, innerHeight];
   };
-  const spawn = (x, y, o = {}) => {
-    const pal = PAL[o.pal || 'ember'];
-    parts.push({
-      x, y, vx: o.vx ?? (Math.random() - .5) * .4, vy: o.vy ?? -(.3 + Math.random() * .9),
-      life: 0, max: o.max ?? 220 + Math.random() * 260, size: o.size ?? .6 + Math.random() * 1.8,
-      seed: Math.random() * 100, c: pal[Math.floor(Math.random() * pal.length)], ambient: !!o.ambient
-    });
-  };
-  let lastX = 0, lastY = 0, heat = 0, amb = 0;
+  if (!reduce) {
+    let worker = null;
+    try { if (cv.transferControlToOffscreen && location.protocol !== 'file:') worker = new Worker('embers.js'); } catch { worker = null; }
+    if (worker) {
+      const oc = cv.transferControlToOffscreen();
+      worker.postMessage({ init: 1, canvas: oc, fine, size: size() }, [oc]);
+      send = (k, ...a) => worker.postMessage({ k, a });
+    } else if (window.EmbersSim) {
+      local = EmbersSim(cv.getContext('2d'), fine); local.resize(...size());
+      send = (k, ...a) => local[k](...a);
+    }
+  }
+  addEventListener('resize', () => {
+    // адресная строка на телефоне меняет только высоту — буфер не пересоздаём (дорого и даёт мигание), сообщаем видимую высоту
+    if (!fine && W === innerWidth && H >= innerHeight) return send('set', { vis: innerHeight });
+    send('resize', ...size());
+  });
+  let lastX = 0, lastY = 0;
   if (fine) addEventListener('pointermove', e => {
-    const d = Math.hypot(e.clientX - lastX, e.clientY - lastY);
-    if (d > 14 && parts.length < 300) {
-      spawn(e.clientX, e.clientY, { vx: (Math.random() - .5) * .6, vy: -.2 - Math.random() * .6, max: 50 + Math.random() * 40, size: .5 + Math.random() * 1.2 });
-      lastX = e.clientX; lastY = e.clientY;
-    }
+    if (Math.hypot(e.clientX - lastX, e.clientY - lastY) > 14) { send('trail', e.clientX, e.clientY); lastX = e.clientX; lastY = e.clientY; }
   }, { passive: true });
-  addEventListener('resize', resize); resize();
+  const last = { heat: -1, level: -1, mid: -1, aura: undefined };
+  const push = (k, v, eps) => { if (eps ? Math.abs(v - last[k]) > eps : v !== last[k]) { last[k] = v; send('set', { [k]: v }); } };
   return {
-    set heat(v) { heat = v; },
-    burst(x, y, n, pal) {
-      if (reduce) return;
-      for (let i = 0; i < n; i++) {
-        const a = Math.random() * Math.PI * 2, s = 1 + Math.random() * 6;
-        spawn(x, y, { vx: Math.cos(a) * s, vy: Math.sin(a) * s - 1.5, max: 60 + Math.random() * 90, size: .8 + Math.random() * 2.2, pal });
-      }
-    },
-    tick(t) {
-      if (reduce) return;
-      // телефон: 30 кадров в секунду для искр — разницы на глаз нет, нагрузка вдвое меньше
-      if (!fine && (this._f = !this._f)) return;
-      const target = (W < 700 ? 16 : 50) * (1 + heat * 1.5);
-      if (amb < target && Math.random() < .5) spawn(Math.random() * W, H + 10, { ambient: true, pal: heat > .3 && Math.random() < heat ? 'blood' : 'ember' });
-      ctx.clearRect(0, 0, W, H);
-      ctx.globalCompositeOperation = 'lighter';
-      let alive = 0; amb = 0;
-      const st = fine ? 1 : 2; // на 30 fps двигаем за кадр вдвое дальше — скорость искр та же
-      for (let i = 0; i < parts.length; i++) {
-        const p = parts[i];
-        p.life += st;
-        if (p.life >= p.max || p.y < -20) continue;
-        parts[alive++] = p;
-        if (p.ambient) amb++;
-        p.vx += Math.sin(t / 700 + p.seed) * .012 * st;
-        if (!p.ambient) { p.vx *= st > 1 ? .931 : .965; p.vy = p.vy * (st > 1 ? .931 : .965) - .02 * st; } else p.vy -= .002 * st;
-        p.x += p.vx * st; p.y += p.vy * st;
-        const k = p.life / p.max, a = (k < .1 ? k * 10 : 1 - (k - .1) / .9) * (.6 + Math.sin(t / 60 + p.seed) * .4);
-        ctx.globalAlpha = a * .18; ctx.fillStyle = p.c[0];
-        ctx.beginPath(); ctx.arc(p.x, p.y, p.size * 4, 0, 6.283); ctx.fill();
-        ctx.globalAlpha = a; ctx.fillStyle = p.c[1];
-        ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, 6.283); ctx.fill();
-      }
-      parts.length = alive;
-      ctx.globalAlpha = 1;
-    }
+    set heat(v) { push('heat', v, .02); },
+    set aura(v) { push('aura', v); },
+    music(level, mid) { push('level', level, .01); push('mid', mid, .02); },
+    paused(p) { send('set', { paused: p }); },
+    burst: (x, y, n, pal) => send('burst', x, y, n, pal),
+    emit: (r, hex, n) => send('emit', { left: r.left, top: r.top, width: r.width, height: r.height }, hex, n),
+    kick: p => send('kick', p),
+    tick: t => local?.tick(t) // в отдельном потоке искры крутят кадры сами
   };
 })();
 
@@ -953,8 +1010,10 @@ if (fine) {
   addEventListener('pointermove', e => {
     cur.x = e.clientX; cur.y = e.clientY;
     document.documentElement.classList.add('moved');
-    const big = !!e.target.closest?.('a, button, [data-open], .ocard');
+    const seal = !!e.target.closest?.('.seal');
+    const big = !seal && !!e.target.closest?.('a, button, [data-open], .ocard');
     if (big !== cur.big) { cur.big = big; cur.ring.classList.toggle('big', big); }
+    if (seal !== cur.seal) { cur.seal = seal; cur.ring.classList.toggle('hide', seal); }
   }, { passive: true });
   document.addEventListener('pointerleave', () => document.documentElement.classList.remove('moved'));
 }
@@ -1049,13 +1108,15 @@ addEventListener('scroll', () => { S.dirty = true; }, { passive: true });
 measure();
 
 (function loop(t) {
+  // положение карточки/строки, откуда звучит музыка, меряем в начале кадра, пока раскладка свежая (дальше в кадре пишем стили)
+  if (beat.srcEl) beat.rect = beat.srcEl.getBoundingClientRect();
   const y = scrollY;
   if (y !== S.y) { S.y = y; S.dirty = true; S.moved = t; }
   if (!S.modal) {
     if (S.dirty) { tickScroll(); S.dirty = false; }
     tickHero(); tickTorch(t);
     Embers.heat = Math.max(S.heat, tickBeat() * .9);
-    if (fine || t - (S.moved || 0) > 160) Embers.tick(t); // телефон: искры замирают, пока листаешь
+    Embers.music(beat.level, beat.mid); Embers.tick(t);
   } else tickBeat();
   tickCursor();
   requestAnimationFrame(loop);
