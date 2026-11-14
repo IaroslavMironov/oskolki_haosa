@@ -57,7 +57,8 @@ const imgTag = (src, alt = '', sizes = SIZES.full, cls = '', eager = false) =>
    mode: 'auto' — играет, пока видно на экране; 'hover' — по наведению; 'play' — сразу */
 //       'one' — карточки на телефоне: одновременно играет только одно видео (см. initCharacters)
 function media(item, cls = '', mode = 'auto', sizes = SIZES.full) {
-  const preload = { auto: 'none', one: 'metadata' }[mode] || 'auto';
+  //       'later' — окно кодекса на телефоне: стартует после проявления окна (не в тот же момент, что анимация)
+  const preload = { auto: 'none', one: 'metadata', later: 'metadata' }[mode] || 'auto';
   if (item.video) return `<video class="${cls}" src="${esc(item.video)}" poster="${esc(item.img ? best(item.img, 480) : '')}" muted loop playsinline preload="${preload}" ${mode === 'play' ? 'autoplay' : mode === 'auto' ? 'data-auto' : ''}></video>`;
   return item.img ? imgTag(item.img, item.title, sizes, cls) : '';
 }
@@ -96,7 +97,7 @@ function breakSeal(e) {
   splash.classList.add('go');
   inner.classList.add('settled');
   seal.classList.add('broken');
-  Theme.unlock(find('songs', D.characters[0].theme)?.preview); // клик по печати — жест пользователя, разрешаем звук
+  Theme.unlock(); // клик по печати — жест пользователя, разрешаем звук
   const enter = () => {
     document.body.classList.remove('locked');
     document.body.classList.add('entered');
@@ -182,9 +183,16 @@ function initHero() {
   hero.copy = $('.hero-copy');
   const img = imgTag(D.hero.img, 'Айла в горящей короне', '(max-width: 900px) 100vw, 40vw', '', true);
   hero.shards = polys.map((p, i) => {
+    // осколок — блок размером со свой многоугольник, а не на весь портрет:
+    // 6 полноэкранных слоёв съедали ~60 МБ видеопамяти на телефоне (отсюда «проблески» при прокрутке)
+    const xs = p.map(q => q[0]), ys = p.map(q => q[1]);
+    const x0 = Math.min(...xs), y0 = Math.min(...ys), bw = Math.max(...xs) - x0, bh = Math.max(...ys) - y0;
     const el = document.createElement('div');
     el.className = 'hero-shard';
-    el.style.setProperty('--clip', `polygon(${p.map(q => `${q[0]}% ${q[1]}%`).join(',')})`);
+    el.style.cssText = `left:${x0}%;top:${y0}%;width:${bw}%;height:${bh}%`;
+    el.style.setProperty('--clip', `polygon(${p.map(q => `${((q[0] - x0) / bw * 100).toFixed(2)}% ${((q[1] - y0) / bh * 100).toFixed(2)}%`).join(',')})`);
+    el.style.setProperty('--iw', `${(100 / bw * 100).toFixed(3)}%`); el.style.setProperty('--ih', `${(100 / bh * 100).toFixed(3)}%`);
+    el.style.setProperty('--il', `${(-x0 / bw * 100).toFixed(3)}%`); el.style.setProperty('--it', `${(-y0 / bh * 100).toFixed(3)}%`);
     el.innerHTML = i ? img.replace(/alt="[^"]*"/, 'alt=""') : img;
     box.appendChild(el);
     const cx = p.reduce((s, q) => s + q[0], 0) / p.length - C[0], cy = p.reduce((s, q) => s + q[1], 0) / p.length - C[1];
@@ -228,7 +236,7 @@ function initCharacters() {
         <div class="card-media">${media(c, '', fine ? 'hover' : 'one', SIZES.card)}</div>
         <div class="card-glare"></div>
         <div class="card-frame"></div>
-        ${c.theme ? '<span class="card-sing" aria-hidden="true"></span>' : ''}
+        ${c.theme ? `<span class="card-sing" aria-hidden="true"></span><button class="card-play" data-theme="${esc(c.theme)}" aria-pressed="false" aria-label="Слушать тему: «${esc(c.theme)}»">♪</button>` : ''}
         <div class="card-body">
           <span class="card-tag">${esc(FACTION[c.faction] || '')}${c.role ? ' · ' + esc(c.role) : ''}</span>
           <h3>${esc(c.title)}</h3>
@@ -262,11 +270,22 @@ function initCharacters() {
     $$('#cards video').forEach(v => pick.observe(v));
   }
 
+  // ПК: подгружаем темы заранее, когда раздел персонажей на подходе — тогда звук при наведении стартует сразу
+  if (fine) {
+    const pre = new IntersectionObserver(([e]) => { if (e.isIntersecting) { Theme.preload(D.characters.map(c => find('songs', c.theme))); pre.disconnect(); } }, { rootMargin: '900px 0px' });
+    pre.observe($('#characters'));
+  }
+
+  // ушли из раздела персонажей — тема замолкает (на телефоне иначе играла дальше, где бы ты ни был)
+  new IntersectionObserver(([e]) => e.isIntersecting || Theme.stop()).observe($('#characters'));
+
   $$('#cards .card').forEach((card, i) => {
     const v = fine && $('video', card);
     const theme = find('songs', D.characters[i].theme);
-    card.addEventListener('pointerenter', () => { v && v.play().catch(() => {}); fine && Theme.hover(theme, card); });
-    card.addEventListener('pointerleave', () => {
+    card.addEventListener('pointerenter', e => { if (e.pointerType !== 'mouse') return; v && v.play().catch(() => {}); Theme.hover(theme, card); });
+    card.addEventListener('pointerleave', e => {
+      // у касания «уход» приходит сразу после пальца (ещё до клика) — иначе ♪ выключался бы сам
+      if (e.pointerType !== 'mouse') return;
       Theme.leave(card);
       v && v.pause();
       const s = card.style; ['--rx', '--ry', '--mx', '--my'].forEach(p => s.removeProperty(p));
@@ -293,48 +312,74 @@ function initCharacters() {
   });
 }
 
-/* ── тема персонажа: отрывок при задержке курсора на карточке ── */
+/* ── тема персонажа: ♪ на карточке (везде) + наведение (ПК) ──
+   У каждой песни свой <audio>: на ПК темы подгружаются заранее, поэтому звук стартует сразу.
+   Раньше один элемент менял src при каждом наведении: первая попытка не успевала загрузиться,
+   прерывалась уходом мыши — и мы ошибочно показывали «браузер заблокировал звук». */
 const Theme = (() => {
-  const a = new Audio();
-  a.preload = 'none';
-  let timer = 0, fadeRaf = 0, cur = null;
-  let on = true;
-  try { on = localStorage.getItem('codex-sound') !== 'off'; } catch {}
-  const fade = (to, ms, done) => {
-    cancelAnimationFrame(fadeRaf);
-    const from = a.volume, t0 = performance.now();
-    const step = t => { const k = clamp((t - t0) / ms); a.volume = from + (to - from) * k; k < 1 ? (fadeRaf = requestAnimationFrame(step)) : done?.(); };
-    fadeRaf = requestAnimationFrame(step);
+  const pool = new Map();
+  const get = song => {
+    let a = pool.get(song);
+    if (!a) { a = new Audio(); a.preload = fine ? 'auto' : 'none'; a.src = song.preview; a.onended = () => cur === a && stop(true); pool.set(song, a); }
+    return a;
   };
-  const stop = () => { clearTimeout(timer); if (cur) cur.classList.remove('sing'); cur = null; if (!a.paused) fade(0, 450, () => a.pause()); };
+  let timer = 0, cur = null, curCard = null, on = true;
+  try { on = localStorage.getItem('codex-sound') !== 'off'; } catch {}
+  const fade = (a, to, ms, done) => {
+    cancelAnimationFrame(a._fade);
+    const from = a.volume, t0 = performance.now();
+    const step = t => { const k = clamp((t - t0) / ms); a.volume = from + (to - from) * k; k < 1 ? (a._fade = requestAnimationFrame(step)) : done?.(); };
+    a._fade = requestAnimationFrame(step);
+  };
   const btn = $('#sound-toggle');
-  const paint = () => { btn.classList.toggle('off', !on); btn.setAttribute('aria-pressed', on); btn.setAttribute('aria-label', on ? 'Выключить звук персонажей' : 'Включить звук персонажей'); btn.title = on ? 'Звук персонажей: вкл' : 'Звук персонажей: выкл'; };
-  btn.addEventListener('click', () => { Theme.unlock(); on = !on; try { localStorage.setItem('codex-sound', on ? 'on' : 'off'); } catch {} if (!on) stop(); paint(); });
+  const paint = () => { btn.classList.toggle('off', !on); btn.setAttribute('aria-pressed', on); btn.setAttribute('aria-label', on ? 'Выключить звук при наведении на героев' : 'Включить звук при наведении на героев'); btn.title = on ? 'Звук при наведении: вкл' : 'Звук при наведении: выкл'; };
+  btn.addEventListener('click', () => { on = !on; try { localStorage.setItem('codex-sound', on ? 'on' : 'off'); } catch {} if (!on) stop(); paint(); });
   paint();
-  const say = (card, text) => { const tag = $('.card-sing', card); if (tag) tag.textContent = text; cur = card; card.classList.add('sing'); };
+  const mark = (card, text) => {
+    const tag = $('.card-sing', card); if (tag) tag.textContent = text;
+    card.classList.add('sing');
+    const b = $('.card-play', card); if (b) { b.textContent = '❚❚'; b.setAttribute('aria-pressed', 'true'); }
+  };
+  const unmark = card => {
+    card.classList.remove('sing');
+    const b = $('.card-play', card); if (b) { b.textContent = '♪'; b.setAttribute('aria-pressed', 'false'); }
+  };
+  function stop(fast) {
+    clearTimeout(timer);
+    const a = cur, card = curCard; cur = curCard = null;
+    if (card) unmark(card);
+    if (a && !a.paused) fade(a, 0, fast ? 120 : 400, () => { if (cur !== a) a.pause(); });
+  }
+  function start(song, card, tap) {
+    if (!song?.preview) return;
+    if (playing && !player.paused) { if (!tap) return; player.pause(); setPlaying(null); } // наведение не перебивает песню из плеера
+    stop(true);
+    const a = get(song);
+    cur = a; curCard = card;
+    try { a.currentTime = 1.1; } catch {} // пропускаем вшитое в отрывок затухание
+    a.volume = 0;
+    mark(card, a.readyState >= 3 ? '♪ ' + song.title : '♪ загрузка…');
+    a.play().then(() => {
+      if (cur !== a) return a.pause();
+      fade(a, .8, 300); mark(card, '♪ ' + song.title);
+    }).catch(err => {
+      if (cur !== a || err.name === 'AbortError') return; // прервали сами (ушли с карточки) — это не ошибка
+      mark(card, err.name === 'NotAllowedError' ? '🔇 Нажми ♪ — браузер ждёт касания' : '⚠ Не удалось загрузить');
+    });
+  }
   return {
-    hover(song, card) {
-      if (!song?.preview || (playing && !player.paused)) return; // не перебиваем включённую вручную песню
-      clearTimeout(timer);
-      timer = setTimeout(() => {
-        if (!on) return say(card, '🔇 Звук выключен — кнопка вверху');
-        if (!a.src.endsWith(song.preview)) a.src = song.preview;
-        a.currentTime = 1.1; // пропускаем вшитое в отрывок затухание
-        a.volume = 0;
-        a.play().then(() => { fade(.8, 300); say(card, '♪ ' + song.title); })
-          .catch(() => { say(card, '🔇 Браузер заблокировал звук — кликни по странице'); btn.classList.add('ask'); });
-      }, 250);
-    },
-    leave: stop,
+    hover(song, card) { if (!on) return; clearTimeout(timer); timer = setTimeout(() => start(song, card, false), 220); },
+    leave(card) { clearTimeout(timer); if (curCard === card) stop(); },
+    toggle(song, card) { if (curCard === card && cur && !cur.paused) stop(); else start(song, card, true); },
     stop,
-    // вызывается в момент клика: «разблокирует» элемент для строгих браузеров (Safari и др.)
-    unlock(src) {
-      if (a.dataset.unlocked) return;
-      a.dataset.unlocked = 1;
-      if (!a.src && src) a.src = src;
-      a.muted = true;
-      a.play().then(() => { a.pause(); a.muted = false; }).catch(() => { a.muted = false; delete a.dataset.unlocked; });
-      btn.classList.remove('ask');
+    preload(songs) { songs.forEach(s => s?.preview && get(s)); },
+    // на каждом касании/клике «разблокируем» ещё не разблокированные элементы (нужно Safari)
+    unlock() {
+      pool.forEach(a => {
+        if (a._unlocked || a === cur) return;
+        a._unlocked = true; a.muted = true;
+        a.play().then(() => { if (cur !== a) a.pause(); a.muted = false; }).catch(() => { a.muted = false; a._unlocked = false; });
+      });
     }
   };
 })();
@@ -358,7 +403,7 @@ function initChronicle() {
 function sizeChronicle() {
   const sec = $('#chronicle'), track = $('#chron-track');
   const extra = Math.max(0, track.scrollWidth - innerWidth);
-  sec.style.height = `${extra + innerHeight}px`;
+  sec.style.height = `${extra + (S.vh || innerHeight)}px`;
   sec._extra = extra;
 }
 
@@ -385,7 +430,7 @@ function initEvents() {
     }
     if (ev.scene === 'torch') return `<div class="scene scene-torch" id="torch">
         <div class="scene-bg">${media(ev)}</div>
-        <div class="torch-dark"></div>
+        <div class="torch-dark"><div class="torch-light"></div></div>
         <p class="torch-hint">${fine ? 'Веди факелом' : 'Коснись тьмы'}</p>
         <div class="scene-text" data-reveal>
           <p class="kicker">${esc(ev.year || '')}</p>
@@ -429,7 +474,9 @@ function initEvents() {
 
   const torch = $('#torch');
   if (torch) {
-    const st = torch._t = { x: .5, y: .45, tx: .5, ty: .45, last: 0, on: false, el: torch, hint: $('.torch-hint', torch) };
+    const st = torch._t = { x: .5, y: .45, tx: .5, ty: .45, last: 0, on: false, el: torch, light: $('.torch-light', torch), hint: $('.torch-hint', torch) };
+    const size = () => { st.w = torch.offsetWidth; st.h = torch.offsetHeight; st.half = st.light.offsetWidth / 2; };
+    size(); addEventListener('resize', size);
     const move = e => {
       const r = torch.getBoundingClientRect();
       st.tx = (e.clientX - r.left) / r.width; st.ty = (e.clientY - r.top) / r.height;
@@ -452,25 +499,35 @@ function tickTorch(t) {
     st.ty = .45 + Math.sin(t / 1300) * .18;
   }
   st.x += (st.tx - st.x) * .08; st.y += (st.ty - st.y) * .08;
-  const r = (innerWidth < 700 ? 170 : 280) * (1 + Math.sin(t / 90) * .03 + Math.sin(t / 37) * .02);
-  const s = st.el.style;
-  s.setProperty('--x', `${(st.x * 100).toFixed(2)}%`); s.setProperty('--y', `${(st.y * 100).toFixed(2)}%`); s.setProperty('--r', `${r.toFixed(0)}px`);
+  // свет — готовый градиент 280px, двигаем и чуть «дышим» масштабом: только transform, без перерисовки
+  const k = 1 + Math.sin(t / 90) * .03 + Math.sin(t / 37) * .02; // радиус на телефоне меньше — задан в CSS
+  st.light.style.transform = `translate3d(${(st.x * st.w - st.half).toFixed(1)}px, ${(st.y * st.h - st.half).toFixed(1)}px, 0) scale(${k.toFixed(3)})`;
 }
 
 /* ═══════════ Карта ═══════════ */
 const Map2 = { world: null, stage: null, k: 1, sel: -1 };
 function initMap() {
   const L = Object.fromEntries(D.locations.map(l => [l.title, l.map]));
-  const art = CodexMap.build({ castle: L['Замок Элронда'], forest: L['Лес у замка'], town: L['Дороги и таверны'] });
+  const locs = { castle: L['Замок Элронда'], forest: L['Лес у замка'], town: L['Дороги и таверны'] };
+  // есть готовая картинка под эти координаты (tools/render-map.js) — берём её, иначе рисуем кодом
+  const ready = window.OPT_MAP && OPT_MAP.key === CodexMap.key(locs);
+  const art = CodexMap.build(locs, { geometryOnly: ready });
   const { W, H } = art;
   const pct = (x, y) => `left:${(x / W * 100).toFixed(3)}%;top:${(y / H * 100).toFixed(3)}%`;
   const stage = Map2.stage = $('#map-stage'), world = Map2.world = $('#map-world'), wrap = $('.map-wrap');
 
-  // рисунок → картинка один раз (рельеф не живёт в DOM и не перерисовывается при анимациях)
+  // рисунок — одна картинка (рельеф не живёт в DOM и не перерисовывается при анимациях); грузим на подходе к карте
   const img = $('#map-art');
-  const url = URL.createObjectURL(new Blob([art.svg], { type: 'image/svg+xml' }));
   img.onload = () => (img.decode ? img.decode() : Promise.resolve()).catch(() => {}).then(() => wrap.classList.add('ready'));
-  img.src = url;
+  const load = () => {
+    if (ready) {
+      img.sizes = '(max-width: 900px) calc((62svh - 2px) * 1.6), min(1240px, 100vw)';
+      img.srcset = OPT_MAP.sizes.map(w => `opt/map-${w}.webp ${w}w`).join(', ');
+      img.src = `opt/map-${OPT_MAP.sizes[1]}.webp`;
+    } else img.src = URL.createObjectURL(new Blob([art.svg], { type: 'image/svg+xml' }));
+  };
+  const near = new IntersectionObserver(([e]) => { if (e.isIntersecting) { load(); near.disconnect(); } }, { rootMargin: '1200px 0px' });
+  near.observe(stage);
 
   // путь побега — отдельный лёгкий слой, прорисовывается при появлении карты
   const d = CodexMap.poly(art.route);
@@ -509,7 +566,8 @@ function initMap() {
     Map2.sel = i;
     $$('.map-pin').forEach(p => p.classList.toggle('active', +p.dataset.loc === i));
     panel.classList.remove('swap'); void panel.offsetWidth; panel.classList.add('swap');
-    panel.innerHTML = `<div class="mp-img">${media(l, '', 'play', SIZES.panel)}</div><p class="kicker" style="margin-top:14px">Локация</p><h3>${esc(l.title)}</h3><p>${esc(l.text)}</p><button class="btn" ${openAttr(l)}>Открыть в кодексе</button>`;
+    panel.innerHTML = `<div class="mp-img">${media(l, '', 'auto', SIZES.panel)}</div><p class="kicker" style="margin-top:14px">Локация</p><h3>${esc(l.title)}</h3><p>${esc(l.text)}</p><button class="btn" ${openAttr(l)}>Открыть в кодексе</button>`;
+    watchVideos(panel);
   };
   // «камера»: подлетает к локации (ПК) или прокручивает карту к ней (телефон)
   const focus = i => {
@@ -548,7 +606,7 @@ function initMap() {
     }, { passive: true });
     stage.addEventListener('pointerleave', () => { tilt.style.transform = ''; });
   }
-  if (narrow()) show(0); // на ПК панель появляется по наведению на метку
+  if (narrow()) show(0); // на ПК панель появляется по клику на метку
   // на телефоне стартуем с замка
   requestAnimationFrame(() => { if (narrow() && L['Замок Элронда']) stage.scrollLeft = L['Замок Элронда'].x / W * world.offsetWidth - 60; });
 }
@@ -618,7 +676,7 @@ function initSongs() {
   $('#now-toggle').addEventListener('click', () => playing && togglePlay(playing));
   $('#now-title').addEventListener('click', e => playing && openEntry(playing, e.clientX, e.clientY));
   // клип со звуком глушит отрывок
-  document.addEventListener('play', e => { if (e.target.closest?.('.clip') && playing) { player.pause(); setPlaying(null); } }, true);
+  document.addEventListener('play', e => { if (!e.target.closest?.('.clip')) return; Theme.stop(true); if (playing) { player.pause(); setPlaying(null); } }, true);
 }
 function setPlaying(song) {
   playing = song;
@@ -637,7 +695,8 @@ function togglePlay(song) {
   initAnalyser();
   Theme.stop();
   beat.avg = null; beat.n = 0;
-  player.src = song.preview; player.play().catch(() => {}); setPlaying(song);
+  player.src = song.preview; setPlaying(song);
+  player.play().catch(e => { if (e.name !== 'AbortError' && playing === song) setPlaying(null); }); // не загрузилось — не показываем «играет»
 }
 
 /* ── музыка управляет светом: бас → искры, неон, эквалайзер ── */
@@ -692,7 +751,7 @@ function renderEntry(item) {
   const kicker = [ONE[t], FACTION[item.faction], item.role, item.year].filter(Boolean).map(esc).join(' · ');
   const listen = linkBtns(item.links) || (t === 'songs' ? linkBtns(D.links, undefined, ['yandex', 'vk']) : ''); // нет ссылки на трек — ведём на артиста
   $('#entry-body').innerHTML = `
-    <div class="entry-media">${item.img || item.video ? media(item, '', 'play', SIZES.entry) : '<div class="entry-noimg" aria-hidden="true">?</div>'}${item.img ? crackSvg() : ''}</div>
+    <div class="entry-media">${item.img || item.video ? media(item, '', fine ? 'play' : 'later', SIZES.entry) : '<div class="entry-noimg" aria-hidden="true">?</div>'}${item.img ? crackSvg() : ''}</div>
     <div class="entry-info">
       <p class="kicker" ${n()}>${kicker}</p>
       <h2 ${n()} id="entry-title">${esc(item.title)}</h2>
@@ -710,6 +769,8 @@ function renderEntry(item) {
     </div>`;
   entry.el.setAttribute('aria-labelledby', 'entry-title');
   entry.el.scrollTop = 0;
+  // телефон: видео стартует, когда окно уже проявилось и текст «приехал» (старт декодера посреди анимации давал рывки)
+  if (!fine) { const v = $('#entry-body .entry-media video'); if (v) setTimeout(() => entry.item === item && !entry.el.hidden && v.play().catch(() => {}), 1100); }
 }
 function openEntry(item, x, y) {
   const el = entry.el;
@@ -727,16 +788,19 @@ function openEntry(item, x, y) {
   el.style.setProperty('--cy', `${y ?? innerHeight / 2}px`);
   el.hidden = false;
   S.modal = true;
-  document.documentElement.classList.add('modal');
+  // на телефоне не трогаем overflow у <html> (на Android это дёргает адресную строку и страницу) —
+  // прокрутку держит overscroll-behavior: contain у самого окна кодекса
+  if (fine) { document.documentElement.classList.add('modal'); setBehind(true); } // Tab не уходит за окно
   requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add('open')));
   $('#entry-close').focus({ preventScroll: true });
 }
+const setBehind = on => ['main', '#nav'].forEach(s => { $(s).inert = on; });
 function restartAnim() { const el = entry.el; el.classList.remove('open'); void el.offsetWidth; el.classList.add('open'); }
 function closeEntry() {
   const el = entry.el;
   if (el.hidden) return;
   el.classList.remove('open');
-  document.documentElement.classList.remove('modal');
+  document.documentElement.classList.remove('modal'); setBehind(false);
   S.modal = false; S.dirty = true;
   $$('video', el).forEach(v => v.pause());
   entry.back?.focus?.({ preventScroll: true });
@@ -763,8 +827,10 @@ function openFull(src) {
 $('#lightbox').addEventListener('click', e => e.currentTarget.hidden = true);
 
 /* ── общие клики/клавиши ── */
-document.addEventListener('pointerdown', () => Theme.unlock(find('songs', D.characters[0].theme)?.preview), { once: true });
+document.addEventListener('pointerdown', () => Theme.unlock(), { passive: true });
 document.addEventListener('click', e => {
+  const th = e.target.closest('[data-theme]');
+  if (th) { e.stopPropagation(); return Theme.toggle(find('songs', th.dataset.theme), th.closest('.card')); }
   const full = e.target.closest('[data-full]');
   if (full) { e.stopPropagation(); return openFull(full.dataset.full); }
   const play = e.target.closest('[data-play]');
@@ -806,10 +872,13 @@ const Embers = (() => {
   // цвета заранее строками — без мусора в каждом кадре
   const PAL = Object.fromEntries(Object.entries(COLORS).map(([k, list]) => [k, list.map(([r, g, b]) => [`rgb(${r},${g},${b})`, `rgb(${Math.min(255, r + 60)},${Math.min(255, g + 60)},${Math.min(255, b + 60)})`])]));
   const resize = () => {
+    // адресная строка на телефоне меняет только высоту — не пересоздаём буфер (это дорого и даёт мигание)
+    if (!fine && W === innerWidth && H >= innerHeight) return;
     // искры — мягкие пятна, им не нужна ретина: 1–1.25 пикселя на точку в 2–4 раза дешевле
     const dpr = Math.min(fine ? 1.25 : 1, devicePixelRatio || 1);
-    W = innerWidth; H = innerHeight;
+    W = innerWidth; H = Math.max(innerHeight, fine ? 0 : H || 0);
     cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr);
+    cv.style.height = H + 'px';
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   };
   const spawn = (x, y, o = {}) => {
@@ -840,20 +909,23 @@ const Embers = (() => {
     },
     tick(t) {
       if (reduce) return;
-      const target = (W < 700 ? 22 : 50) * (1 + heat * 1.5);
+      // телефон: 30 кадров в секунду для искр — разницы на глаз нет, нагрузка вдвое меньше
+      if (!fine && (this._f = !this._f)) return;
+      const target = (W < 700 ? 16 : 50) * (1 + heat * 1.5);
       if (amb < target && Math.random() < .5) spawn(Math.random() * W, H + 10, { ambient: true, pal: heat > .3 && Math.random() < heat ? 'blood' : 'ember' });
       ctx.clearRect(0, 0, W, H);
       ctx.globalCompositeOperation = 'lighter';
       let alive = 0; amb = 0;
+      const st = fine ? 1 : 2; // на 30 fps двигаем за кадр вдвое дальше — скорость искр та же
       for (let i = 0; i < parts.length; i++) {
         const p = parts[i];
-        p.life++;
+        p.life += st;
         if (p.life >= p.max || p.y < -20) continue;
         parts[alive++] = p;
         if (p.ambient) amb++;
-        p.vx += Math.sin(t / 700 + p.seed) * .012;
-        if (!p.ambient) { p.vx *= .965; p.vy = p.vy * .965 - .02; } else p.vy -= .002;
-        p.x += p.vx; p.y += p.vy;
+        p.vx += Math.sin(t / 700 + p.seed) * .012 * st;
+        if (!p.ambient) { p.vx *= st > 1 ? .931 : .965; p.vy = p.vy * (st > 1 ? .931 : .965) - .02 * st; } else p.vy -= .002 * st;
+        p.x += p.vx * st; p.y += p.vy * st;
         const k = p.life / p.max, a = (k < .1 ? k * 10 : 1 - (k - .1) / .9) * (.6 + Math.sin(t / 60 + p.seed) * .4);
         ctx.globalAlpha = a * .18; ctx.fillStyle = p.c[0];
         ctx.beginPath(); ctx.arc(p.x, p.y, p.size * 4, 0, 6.283); ctx.fill();
@@ -890,8 +962,15 @@ function tickCursor() {
    Позиции секций меряем только при изменении размеров (measure), а в кадре — одна арифметика от scrollY. */
 let prog = [];
 const els = {};
+// Стабильная высота экрана. innerHeight на Android меняется, когда прячется/появляется адресная строка,
+// и раньше от этого пересчитывалась высота хроники — всё ниже неё «прыгало» на ~56px («ходуном ходит»).
+// 100svh не меняется — берём её (и sticky-панели тоже на svh, так что прогресс совпадает).
+const probe = document.createElement('div');
+probe.style.cssText = 'position:fixed;left:0;top:0;width:1px;height:100vh;height:100svh;visibility:hidden;pointer-events:none';
+document.body.appendChild(probe);
 function measure() {
-  S.vh = innerHeight;
+  S.vh = probe.offsetHeight || innerHeight;
+  S.w = innerWidth;
   sizeChronicle();
   prog = $$('[data-progress]').map(el => ({ el, top: el.getBoundingClientRect().top + scrollY, h: el.offsetHeight, p: -1, id: el.id, blood: el.classList.contains('scene-blood') }));
   S.max = Math.max(1, document.documentElement.scrollHeight - S.vh);
@@ -901,7 +980,7 @@ function tickScroll() {
   const y = S.y, vh = S.vh;
   const scrolled = y > 40;
   if (scrolled !== S.scrolled) { S.scrolled = scrolled; els.nav.classList.toggle('scrolled', scrolled); }
-  els.fuse.style.setProperty('--p', (y / S.max).toFixed(4));
+  if (fine) els.fuse.style.setProperty('--p', (y / S.max).toFixed(4)); // на телефоне фитиль скрыт
   let heat = 0;
   for (const s of prog) {
     if (y + vh < s.top - vh * .2 || y > s.top + s.h) continue;
@@ -952,7 +1031,8 @@ $('#nav-social').innerHTML = Object.keys(LINK_NAMES).filter(k => D.links?.[k] &&
 
 let mRaf = 0;
 const remeasure = () => { cancelAnimationFrame(mRaf); mRaf = requestAnimationFrame(measure); };
-addEventListener('resize', remeasure);
+// на телефоне ресайз «только по высоте» — это адресная строка: ничего не пересчитываем
+addEventListener('resize', () => { if (!fine && innerWidth === S.w) return; remeasure(); });
 addEventListener('load', remeasure);
 document.fonts?.ready.then(remeasure);
 new ResizeObserver(remeasure).observe($('main'));

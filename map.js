@@ -22,7 +22,10 @@ window.CodexMap = (() => {
   const poly = (pts, close) => 'M' + pts.map(p => `${f(p[0])} ${f(p[1])}`).join('L') + (close ? 'Z' : '');
   const near = (x, y, pts, d) => pts.some(p => (p[0] - x) ** 2 + (p[1] - y) ** 2 < d * d);
 
-  function build(locs) {
+  // ключ рисунка: если координаты в data.js поменяли — готовая картинка устарела, рисуем заново
+  const key = locs => ['castle', 'forest', 'town'].map(k => locs[k] ? `${locs[k].x},${locs[k].y}` : '-').join('|');
+
+  function build(locs, opts = {}) {
     const rnd = seeded(20251113);
     const R = (a, b) => a + rnd() * (b - a);
     const castle = locs.castle || { x: 480, y: 360 }, forest = locs.forest || { x: 760, y: 560 }, town = locs.town || { x: 1240, y: 700 };
@@ -42,6 +45,8 @@ window.CodexMap = (() => {
 
     /* ── маршрут побега (рисуется отдельным оверлеем) ── */
     const route = sample([[castle.x + 30, castle.y + 40], [castle.x + 90, castle.y + 120], [forest.x - 170, forest.y - 40], [trap.x + 10, trap.y - 40], [forest.x, forest.y]], 16);
+    // готовая картинка карты уже есть (opt/map-*.webp) — нужна только геометрия для подписей и пути
+    if (opts.geometryOnly) return { route, W, H, dark, trap, lake, bridge };
 
     /* ── граница королевства ── */
     const border = [];
@@ -325,5 +330,5 @@ window.CodexMap = (() => {
     return { svg, route, W, H, dark, trap, lake, bridge };
   }
 
-  return { build, poly };
+  return { build, poly, key };
 })();
