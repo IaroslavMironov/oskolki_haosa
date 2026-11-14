@@ -74,10 +74,13 @@ html.fine, html.fine * { cursor: none !important; }
 .settled .splash-title .r2 { animation: flicker 5s infinite; }
 .splash-hint { margin: 18px 0 0; font: italic 300 15px var(--body); color: var(--dim); letter-spacing: .1em; opacity: 0; animation: fadeUp 1s 2.6s var(--ease-out) forwards; }
 .settled .splash-kicker, .settled .splash-hint { animation: none; opacity: 1; }
-.splash .seal { margin: 46px auto 0; opacity: 0; animation: sealIn 1.2s 2.2s var(--ease-out) forwards, sealPulse 2.6s 3.4s ease-in-out infinite; }
+.splash .seal { margin: 46px auto 0; opacity: 0; animation: sealIn 1.2s 2.2s var(--ease-out) forwards; }
+.splash .seal::before { content: ''; position: absolute; inset: -4%; border-radius: 50%; box-shadow: 0 0 44px 8px rgba(255,45,149,.42); opacity: 0; transition: opacity .3s; }
+.settled .seal::before { animation: sealGlow 2.6s ease-in-out infinite; }
+.seal.broken::before, .shard-clone .seal::before { animation: none; opacity: 0; }
+@keyframes sealGlow { 50% { opacity: 1; } }
 .settled .seal { animation: none; opacity: 1; }
 @keyframes sealIn { from { opacity: 0; transform: scale(2.2) rotate(-25deg); } to { opacity: 1; transform: none; } }
-@keyframes sealPulse { 50% { box-shadow: 0 0 0 10px rgba(154,16,36,.0), 0 0 50px rgba(255,45,149,.45); } }
 @keyframes fadeUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: none; } }
 
 .shard { position: absolute; overflow: hidden; transition: transform 1.5s var(--ease-out), opacity 1.2s ease; }
@@ -90,16 +93,9 @@ body.shake main, body.shake .nav { animation: shake .45s; }
 @keyframes shake { 20%{transform:translate(-8px,4px)} 40%{transform:translate(6px,-6px)} 60%{transform:translate(-4px,3px)} 80%{transform:translate(3px,-2px)} }
 
 /* ═══════════ Печать ═══════════ */
-.seal { position: relative; display: block; width: 108px; height: 108px; color: rgba(255,210,190,.75); border-radius: 50%; }
-/* внешняя тень — на круглой основе: на половинках её обрезал clip-path и получался квадрат */
-.seal::before { content: ''; position: absolute; inset: 2%; border-radius: 50%; box-shadow: 0 6px 22px rgba(0,0,0,.6); transition: opacity .3s; }
-.seal.broken::before { opacity: 0; }
-.seal-half { position: absolute; inset: 0; display: grid; place-items: center; transition: transform 1s var(--ease-out), opacity 1s;
-  border-radius: 47% 53% 50% 50% / 52% 46% 54% 48%;
-  background: radial-gradient(circle at 34% 30%, #d43a4c 0%, #9a1024 45%, #5c0711 80%, #3d040b 100%);
-  box-shadow: inset -6px -8px 14px rgba(0,0,0,.45), inset 5px 6px 10px rgba(255,140,140,.25); }
-.seal-half::before { content: ''; position: absolute; inset: 14%; border-radius: 50%; border: 2px solid rgba(255,190,180,.25); box-shadow: inset 0 0 0 4px rgba(80,0,10,.3); }
-.seal-half svg { width: 46%; height: 46%; filter: drop-shadow(0 1px 0 rgba(0,0,0,.6)); }
+.seal { position: relative; display: block; width: 108px; height: 108px; border-radius: 50%; }
+/* сургуч — готовая картинка с рельефом и тенью (tools/render-seal.js); капля занимает ~3/4 кадра, поэтому половинки шире кнопки */
+.seal-half { position: absolute; inset: -17%; background: url(opt/seal.webp) center / contain no-repeat; transition: transform 1s var(--ease-out), opacity 1s; }
 .seal-half.l { clip-path: polygon(0 0, 54% 0, 45% 28%, 58% 52%, 44% 76%, 50% 100%, 0 100%); }
 .seal-half.r { clip-path: polygon(54% 0, 100% 0, 100% 100%, 50% 100%, 44% 76%, 58% 52%, 45% 28%); }
 @media (hover: hover) {
@@ -177,10 +173,15 @@ body.entered .hero-portrait { opacity: 1; transform: none; }
 .hero-glow { position: absolute; inset: -12%; background: radial-gradient(ellipse at 50% 20%, rgba(255,138,61,.45), transparent 45%), radial-gradient(ellipse at 50% 70%, rgba(255,45,149,.28), transparent 60%); animation: flicker 4s infinite; }
 .hero-core { position: absolute; inset: 4%; background: radial-gradient(ellipse at 52% 36%, #ffd0a0, var(--neon) 30%, #3a0820 75%); box-shadow: 0 0 60px rgba(255,45,149,.6); opacity: min(.85, calc(var(--hp, 0) * 1.4)); will-change: opacity; }
 .hero-shards { position: absolute; inset: 0; }
-/* осколок размером со свой многоугольник; картинка внутри растянута на весь портрет и сдвинута (--iw/--il…) */
-.hero-shard { position: absolute; overflow: hidden; clip-path: var(--clip); will-change: transform; }
-.hero-shard img { position: absolute; left: var(--il, 0); top: var(--it, 0); width: var(--iw, 100%); height: var(--ih, 100%); max-width: none; object-fit: cover; }
-.hero-shard::after { content: ''; position: absolute; inset: 0; background: linear-gradient(115deg, transparent 40%, rgba(255,255,255,.08) 50%, transparent 60%); }
+/* осколок — готовая картинка с прозрачностью (opt/hero-shard-N.webp), без масок */
+.hero-shard { position: absolute; display: block; max-width: none; will-change: transform; }
+/* телефон: разлёт от прокрутки считает браузер (см. heroCss в app.js); спред 3→83px, как в JS */
+.sda .hero-shard { animation: shardOut linear both; animation-timeline: scroll(root); animation-range: 0 100svh; }
+.sda .hero-copy { animation: copyOut linear both; animation-timeline: scroll(root); animation-range: 0 100svh; }
+.sda .hero-core { animation: coreIn linear both; animation-timeline: scroll(root); animation-range: 0 100svh; }
+@keyframes shardOut { from { transform: translate3d(calc(var(--dx) * 3px), calc(var(--dy) * 3px), 0); } to { transform: translate3d(calc(var(--dx) * 83px), calc(var(--dy) * 83px), 0) rotate(var(--rot)); } }
+@keyframes copyOut { 83% { opacity: 0; } to { opacity: 0; transform: translate3d(0, -80px, 0); } }
+@keyframes coreIn { from { opacity: 0; } 60%, to { opacity: .85; } }
 .hero-flame { position: absolute; left: 33%; top: 3%; width: 36%; height: 16%; pointer-events: none;
   background: radial-gradient(ellipse at 50% 70%, rgba(255,190,90,.6), rgba(255,100,30,.25) 35%, transparent 68%); animation: flame 1.6s infinite alternate ease-in-out; }
 @keyframes flame { 0%{opacity:.55; transform: scale(1) translateY(0);} 30%{opacity:.9;} 60%{opacity:.6; transform: scale(1.12, 1.25) translateY(-6%);} 100%{opacity:.85; transform: scale(.96) translateY(2%);} }
@@ -567,7 +568,8 @@ body.glitch main { animation: glitch .1s steps(2) 12; }
   .hero-portrait { position: absolute; inset: 0; width: auto; height: auto; aspect-ratio: auto; justify-self: stretch; z-index: 0; }
   .hero-portrait::after { content: ''; position: absolute; inset: 0; background: linear-gradient(rgba(7,6,10,.2), rgba(7,6,10,.35) 40%, var(--ink) 92%); }
   .hero-flame { left: 30%; top: 4%; width: 40%; }
-  .hero-shard img { object-position: center 20%; }
+  .hero-portrait { container-type: size; }
+  .hero-shards { inset: auto; left: 50%; translate: -50% 0; width: max(100cqw, 100cqh * .6712); height: max(100cqh, 100cqw * 1.4898); top: calc((100cqh - max(100cqh, 100cqw * 1.4898)) * .2); }
 
   .prologue { height: 260vh; }
   .prologue-sticky { padding: 0 16px; }

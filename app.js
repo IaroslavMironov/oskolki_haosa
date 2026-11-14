@@ -181,27 +181,31 @@ function initHero() {
   const box = $('#hero-shards');
   hero.portrait = $('#hero-portrait');
   hero.copy = $('.hero-copy');
-  const img = imgTag(D.hero.img, 'Айла в горящей короне', '(max-width: 900px) 100vw, 40vw', '', true);
+  // Осколки — заранее вырезанные картинки с прозрачностью (tools/cut-hero.py, те же многоугольники).
+  // Раньше резали на лету через clip-path: на Android это 6 слоёв-масок, которые пересчитывались в каждом кадре.
   hero.shards = polys.map((p, i) => {
-    // осколок — блок размером со свой многоугольник, а не на весь портрет:
-    // 6 полноэкранных слоёв съедали ~60 МБ видеопамяти на телефоне (отсюда «проблески» при прокрутке)
     const xs = p.map(q => q[0]), ys = p.map(q => q[1]);
     const x0 = Math.min(...xs), y0 = Math.min(...ys), bw = Math.max(...xs) - x0, bh = Math.max(...ys) - y0;
-    const el = document.createElement('div');
-    el.className = 'hero-shard';
+    const el = new Image();
+    el.className = 'hero-shard'; el.alt = ''; el.decoding = 'async'; el.fetchPriority = 'high';
+    el.src = `opt/hero-shard-${i}.webp`;
     el.style.cssText = `left:${x0}%;top:${y0}%;width:${bw}%;height:${bh}%`;
-    el.style.setProperty('--clip', `polygon(${p.map(q => `${((q[0] - x0) / bw * 100).toFixed(2)}% ${((q[1] - y0) / bh * 100).toFixed(2)}%`).join(',')})`);
-    el.style.setProperty('--iw', `${(100 / bw * 100).toFixed(3)}%`); el.style.setProperty('--ih', `${(100 / bh * 100).toFixed(3)}%`);
-    el.style.setProperty('--il', `${(-x0 / bw * 100).toFixed(3)}%`); el.style.setProperty('--it', `${(-y0 / bh * 100).toFixed(3)}%`);
-    el.innerHTML = i ? img.replace(/alt="[^"]*"/, 'alt=""') : img;
-    box.appendChild(el);
     const cx = p.reduce((s, q) => s + q[0], 0) / p.length - C[0], cy = p.reduce((s, q) => s + q[1], 0) / p.length - C[1];
     const l = Math.hypot(cx, cy) || 1;
-    return { el, dx: cx / l, dy: cy / l, depth: .5 + (i % 3) * .35, rot: (i % 2 ? 1 : -1) * (2 + i) };
+    const sh = { el, dx: cx / l, dy: cy / l, depth: .5 + (i % 3) * .35, rot: (i % 2 ? 1 : -1) * (2 + i) };
+    // для CSS-анимации от прокрутки (телефон): направление разлёта и поворот
+    el.style.setProperty('--dx', sh.dx.toFixed(3)); el.style.setProperty('--dy', sh.dy.toFixed(3)); el.style.setProperty('--rot', `${sh.rot}deg`);
+    box.appendChild(el);
+    return sh;
   });
   if (fine) addEventListener('pointermove', e => { hero.tx = e.clientX / innerWidth * 2 - 1; hero.ty = e.clientY / innerHeight * 2 - 1; }, { passive: true });
 }
+// Телефон: разлёт осколков ведёт сам браузер (animation-timeline: scroll) — в том же потоке, что и прокрутка.
+// Из JS он отставал на кадр от пальца, и осколки «дрожали» относительно страницы.
+const heroCss = !fine && CSS.supports?.('animation-timeline: scroll()');
+if (heroCss) document.documentElement.classList.add('sda');
 function tickHero() {
+  if (heroCss) return;
   if (S.y > S.vh * 1.05 && hero.done) return; // герой ушёл с экрана — ничего не считаем
   hero.mx += (hero.tx - hero.mx) * .06;
   hero.my += (hero.ty - hero.my) * .06;
@@ -259,15 +263,20 @@ function initCharacters() {
   });
 
   // Телефон: четыре видео сразу дают ~50% рывков на слабом CPU — играет только самое видимое
+  // Играет та карточка, которой коснулся пальцем (в ряду из двух видимость одинаковая — раньше всегда побеждала левая).
+  // Пока ни одной не касались или тронутая ушла с экрана — самая видимая.
   if (!fine) {
-    const ratio = new Map();
-    const pick = new IntersectionObserver(es => {
-      es.forEach(e => ratio.set(e.target, e.intersectionRatio));
-      let top = null, best = .5;
-      ratio.forEach((r, v) => { if (r > best) { best = r; top = v; } });
-      ratio.forEach((r, v) => v === top ? v.play().catch(() => {}) : v.pause());
-    }, { threshold: [0, .25, .5, .75, 1] });
-    $$('#cards video').forEach(v => pick.observe(v));
+    const ratio = new Map(); let touched = null;
+    const choose = () => {
+      let top = touched && ratio.get(touched) > .3 ? touched : null, best = .5;
+      if (!top) ratio.forEach((r, c) => { if (r > best && $('video', c)) { best = r; top = c; } });
+      ratio.forEach((r, c) => { const v = $('video', c); if (v) c === top ? v.play().catch(() => {}) : v.pause(); });
+    };
+    const pick = new IntersectionObserver(es => { es.forEach(e => ratio.set(e.target, e.intersectionRatio)); choose(); }, { threshold: [0, .25, .5, .75, 1] });
+    $$('#cards .card').forEach(c => {
+      pick.observe(c);
+      c.addEventListener('touchstart', () => { if (touched !== c) { touched = c; choose(); } }, { passive: true });
+    });
   }
 
   // ПК: подгружаем темы заранее, когда раздел персонажей на подходе — тогда звук при наведении стартует сразу
@@ -452,8 +461,8 @@ function initEvents() {
           <div class="envelope">
             <div class="env-flap"></div>
             <button class="seal" id="letter-seal" aria-label="Сломать печать письма">
-              <span class="seal-half l"><svg aria-hidden="true"><use href="#crown"/></svg></span>
-              <span class="seal-half r"><svg aria-hidden="true"><use href="#crown"/></svg></span>
+              <span class="seal-half l"></span>
+              <span class="seal-half r"></span>
             </button>
           </div>
           <p class="letter-hint">Сломай печать</p>
@@ -1041,12 +1050,12 @@ measure();
 
 (function loop(t) {
   const y = scrollY;
-  if (y !== S.y) { S.y = y; S.dirty = true; }
+  if (y !== S.y) { S.y = y; S.dirty = true; S.moved = t; }
   if (!S.modal) {
     if (S.dirty) { tickScroll(); S.dirty = false; }
     tickHero(); tickTorch(t);
     Embers.heat = Math.max(S.heat, tickBeat() * .9);
-    Embers.tick(t);
+    if (fine || t - (S.moved || 0) > 160) Embers.tick(t); // телефон: искры замирают, пока листаешь
   } else tickBeat();
   tickCursor();
   requestAnimationFrame(loop);
