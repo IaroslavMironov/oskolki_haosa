@@ -677,10 +677,20 @@ function initOracle() {
   const PER_DAY = D.oracleDaily || 3, KEY = 'codex-oracle';
   const reading = $('#oracle-reading'), left = $('#oracle-left');
   const today = () => new Date().toLocaleDateString('sv'); // ГГГГ-ММ-ДД по местному времени
-  let st = {};
-  try { st = JSON.parse(localStorage.getItem(KEY)) || {}; } catch {}
+  // храним и в localStorage, и в cookie: некоторые браузеры (приватный режим, http-адрес) не дают localStorage — счёт обнулялся
+  const read = () => {
+    try { const v = localStorage.getItem(KEY); if (v) return JSON.parse(v); } catch {}
+    try { const m = document.cookie.match(/(?:^|; )codex-oracle=([^;]*)/); return m ? JSON.parse(decodeURIComponent(m[1])) : {}; } catch { return {}; }
+  };
+  let st = read() || {};
   if (st.day !== today()) st = { day: today(), used: 0, last: null, seen: st.seen || [] };
-  const save = () => { try { localStorage.setItem(KEY, JSON.stringify(st)); } catch {} };
+  const save = () => {
+    const v = JSON.stringify(st);
+    try { localStorage.setItem(KEY, v); } catch {}
+    document.cookie = `codex-oracle=${encodeURIComponent(v)}; max-age=${60 * 864e2}; path=/; SameSite=Lax`;
+  };
+  // честное перемешивание (Фишер–Йетс); sort(() => Math.random() - .5) выдаёт одни карты чаще других
+  const shuffle = a => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
   const untilMidnight = () => {
     const m = Math.ceil((new Date().setHours(24, 0, 0, 0) - Date.now()) / 6e4), h = Math.floor(m / 60);
     return h ? `${h} ч ${m % 60} мин` : `${m} мин`;
@@ -691,16 +701,15 @@ function initOracle() {
     left.classList.toggle('tired', n <= 0);
     again.hidden = n <= 0 || !box.classList.contains('drawn');
   };
-  const show = (i, first) => {
-    reading.innerHTML = `<span class="or-card">${esc(P[i].card)}</span>«${esc(P[i].text)}»`;
+  const show = (i, note) => {
+    reading.innerHTML = `${note ? `<span class="or-note">${note}</span>` : ''}<span class="or-card">${esc(P[i].card)}</span>«${esc(P[i].text)}»`;
     reading.classList.remove('show'); void reading.offsetWidth; reading.classList.add('show');
-    if (first) reading.insertAdjacentHTML('afterbegin', '<span class="or-note">Твоё пророчество на сегодня</span>');
   };
   // три разных карты, которых ещё не было (колода прошла целиком — начинаем заново)
   const draw3 = () => {
     let pool = P.map((_, i) => i).filter(i => !st.seen.includes(i));
     if (pool.length < 3) { st.seen = []; pool = P.map((_, i) => i); }
-    return pool.sort(() => Math.random() - .5).slice(0, 3);
+    return shuffle(pool).slice(0, 3);
   };
   const deal = (flipLast) => {
     box.classList.remove('drawn');
@@ -726,11 +735,12 @@ function initOracle() {
     setTimeout(() => { show(i); status(); }, 650);
   });
   again.addEventListener('click', () => deal());
-  // гадания на сегодня закончились — показываем последнее пророчество, карты закрыты до полуночи
-  if (st.used >= PER_DAY && st.last != null && P[st.last]) {
+  // сегодня уже гадали — после обновления страницы открыто последнее пророчество (иначе казалось, что всё сбросилось);
+  // попытки остались — «Перетасовать», закончились — карты закрыты до полуночи
+  if (st.used > 0 && st.last != null && P[st.last]) {
     deal(st.last);
-    const c = box.firstElementChild; c.classList.add('flipped'); box.classList.add('drawn');
-    show(st.last, true); status();
+    box.firstElementChild.classList.add('flipped'); box.classList.add('drawn');
+    show(st.last, st.used >= PER_DAY ? 'Твоё пророчество на сегодня' : 'Твоё последнее пророчество'); status();
   } else deal();
 }
 
