@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Вход · Глашатай</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%2307060a'/%3E%3Cpath d='M12 44 L8 20 L21 31 L32 12 L43 31 L56 20 L52 44 Z' fill='none' stroke='%23ff2d95' stroke-width='4' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Unicase:wght@500;600&family=Spectral:ital,wght@0,400;1,400&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body class="login-page">
+<form class="login" id="f">
+  <svg viewBox="0 0 64 64" aria-hidden="true"><path d="M12 44 L8 20 L21 31 L32 12 L43 31 L56 20 L52 44 Z" fill="none" stroke="#ff2d95" stroke-width="3" stroke-linejoin="round"/></svg>
+  <h1>Осколки <em>хаоса</em></h1>
+  <p class="kick">Глашатай</p>
+  <label>Логин<input name="login" autocomplete="username" required autofocus autocapitalize="off"></label>
+  <label>Пароль<input name="password" type="password" autocomplete="current-password" required></label>
+  <p class="err" id="err" hidden></p>
+  <button class="primary">Войти</button>
+</form>
+<script>
+  document.getElementById('f').onsubmit = async (e) => {
+    e.preventDefault();
+    const err = document.getElementById('err');
+    const r = await fetch('/api/login', { method: 'POST', headers: { 'content-type': 'application/json', 'x-autopost': '1' },
+      body: JSON.stringify(Object.fromEntries(new FormData(e.target))) });
+    if (r.ok) return location.replace('/');
+    err.textContent = (await r.json().catch(() => ({}))).error || 'Не получилось';
+    err.hidden = false;
+  };
+</script>
+</body>
+</html>

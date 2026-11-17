@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Глашатай · Осколки хаоса</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%2307060a'/%3E%3Cpath d='M12 44 L8 20 L21 31 L32 12 L43 31 L56 20 L52 44 Z' fill='none' stroke='%23ff2d95' stroke-width='4' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Unicase:wght@500;600&family=Spectral:ital,wght@0,400;1,400&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div class="embers" aria-hidden="true"></div>
+<header class="top">
+  <a class="brand" href="#queue"><svg viewBox="0 0 64 64" aria-hidden="true"><path d="M12 44 L8 20 L21 31 L32 12 L43 31 L56 20 L52 44 Z" fill="none" stroke="#ff2d95" stroke-width="4" stroke-linejoin="round"/></svg><b>Осколки <em>хаоса</em></b><span>Глашатай</span></a>
+  <nav class="tabs">
+    <a href="#queue" data-tab="queue">Очередь</a>
+    <a href="#accounts" data-tab="accounts">Площадки</a>
+    <a href="#log" data-tab="log">Журнал</a>
+  </nav>
+  <div class="top-act">
+    <span id="dry" class="dry" hidden title="AUTOPOST_DRY=1: всё проходит очередь и проверки, но на площадки ничего не уходит">тестовый режим</span>
+    <button id="run" class="ghost" title="Не ждать расписания (оно проверяет очередь раз в 20 секунд)">Проверить очередь</button>
+    <button id="new" class="primary">Новый пост</button>
+    <details class="me"><summary id="me-name">…</summary><div class="me-menu"><button class="ghost small" id="me-pw">Сменить пароль</button><button class="ghost small" id="me-out">Выйти</button></div></details>
+  </div>
+</header>
+
+<main>
+  <section id="tab-queue" class="tab">
+    <div class="filters" id="filters"></div>
+    <div class="rubrics"><span class="muted small">Рубрики:</span> <button class="ghost small" id="rub-prophecy" title="Картинка и подпись из 42 пророчеств сайта, черновиками на 7 дней вперёд в 10:00 — VK и Instagram">🔮 Пророчество дня на неделю</button></div>
+    <div id="queue-list"></div>
+  </section>
+  <section id="tab-accounts" class="tab" hidden><div id="accounts-list" class="accounts"></div></section>
+  <section id="tab-log" class="tab" hidden><ol id="log-list" class="log"></ol></section>
+</main>
+
+<dialog id="editor">
+  <form method="dialog" id="post-form">
+    <header class="ed-head"><h2 id="ed-title">Новый пост</h2><button type="button" class="x" data-close aria-label="Закрыть">×</button></header>
+    <div class="ed-body">
+      <div class="ed-main">
+        <label>Название <small>для себя и для YouTube</small><input name="title" required maxlength="100" placeholder="Тизер «Ворожеи»"></label>
+        <label>Подпись <small>общая для всех площадок, у каждой можно заменить</small><textarea name="caption" rows="6"></textarea>
+          <span class="count" id="cap-count"></span></label>
+        <div class="row2">
+          <label>Релиз <small>метка, по ней фильтр</small><input name="release" placeholder="ворожея"></label>
+          <label>Заметка <small>видно только здесь</small><input name="note"></label>
+        </div>
+        <div class="media-head"><b>Файлы</b><span id="media-kind" class="muted"></span>
+          <label class="ghost small upload">Загрузить свой<input type="file" id="upload" multiple accept="video/*,image/*" hidden></label></div>
+        <div id="picked" class="picked"></div>
+        <details class="library"><summary>Выбрать из готового контента (docs/)</summary><div id="library" class="lib"></div></details>
+      </div>
+      <div class="ed-side">
+        <b>Куда и когда</b>
+        <p class="muted small">Время — московское. Отмеченное сохранится черновиком; «В очередь» — отдельно, после проверки.</p>
+        <div id="targets"></div>
+      </div>
+    </div>
+    <footer class="ed-foot">
+      <button type="button" id="del" class="danger ghost" hidden>Удалить пост</button>
+      <span class="spacer"></span>
+      <button type="button" data-close class="ghost">Отмена</button>
+      <button type="button" id="save" class="ghost">Сохранить черновиком</button>
+      <button type="button" id="save-queue" class="primary">Сохранить и в очередь</button>
+    </footer>
+  </form>
+</dialog>
+
+<dialog id="pack">
+  <div class="pack" id="pack-body"></div>
+</dialog>
+
+<dialog id="pw">
+  <form id="pw-form" class="pw">
+    <header class="ed-head"><h2>Смена пароля</h2><button type="button" class="x" data-close aria-label="Закрыть">×</button></header>
+    <div class="pw-body">
+      <label>Старый пароль<input name="old" type="password" autocomplete="current-password" required></label>
+      <label>Новый пароль <small>не короче 8 знаков</small><input name="new" type="password" autocomplete="new-password" minlength="8" required></label>
+      <p class="muted small">После смены нужно будет войти заново на всех устройствах.</p>
+    </div>
+    <footer class="ed-foot"><span class="spacer"></span><button class="primary">Сменить</button></footer>
+  </form>
+</dialog>
+
+<div id="toast" class="toast" hidden></div>
+<script src="/app.js" type="module"></script>
+</body>
+</html>

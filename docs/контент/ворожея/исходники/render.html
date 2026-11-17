@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Runic&family=Cormorant+Unicase:wght@600&family=Cormorant+Garamond:ital,wght@0,600;1,500&family=Spectral:wght@500&display=swap" rel="stylesheet">
+<style>html,body{margin:0;background:#000}canvas{display:block}</style></head>
+<body><canvas id="c" width="1080" height="1920"></canvas>
+<script>
+/* Конвейер визуалайзеров (прототип). Один шаблон, ролик задаётся конфигом: отрезок песни, строки с временем слов,
+   фон, «номера» (карты, трещины, раскол) и концовка. ?clip=A|B|C. Время — в секундах песни. */
+const W = 1080, H = 1920, FPS = 24, AURA = '201,168,255';
+const c = document.getElementById('c'), X = c.getContext('2d');
+let seed = 11; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+const cl = k => Math.min(1, Math.max(0, k)), ease = k => 1 - Math.pow(1 - cl(k), 3), easeIn = k => cl(k) ** 2;
+const load = s => new Promise((ok, no) => { const i = new Image(); i.onload = () => ok(i); i.onerror = () => no(s); i.src = s; });
+// строка: [слова через пробел, времена начала слов]
+const L = (text, times, opt = {}) => ({ words: text.split(' ').map((w, i) => ({ w, a: times[i] })), ...opt });
+
+const CLIPS = {
+  // A — «Расклад»: финальный припев, портрет, кинетический текст
+  A: { from: 245.2, to: 277.2, bg: 'vorozheya-art.jpg', fy: .2,
+    chant: [245.46, 246.19, 246.92, 247.65],
+    lines: [
+      L('Ворожея, о ворожея, сделай мне расклад!', [248.64, 249.68, 249.78, 250.72, 251.35, 251.66]),
+      L('Расскажи, что видишь там, что скрыто от глаз!', [252.78, 253.69, 253.97, 254.71, 254.99, 255.27, 255.81, 255.99]),
+      L('Тени, не жалея, бьют королевских солдат!', [256.72, 257.22, 257.42, 257.92, 258.32, 259.42]),
+      L('Воины падают на землю, превращаясь в прах!', [260.34, 260.89, 261.55, 261.77, 262.54, 263.76, 263.87]),
+      L('Ворожея, о ворожея, кинь кости в огонь!', [264.86, 265.67, 265.76, 266.66, 267.0, 267.47, 267.8]),
+      L('Разгорается проклятье, жжёт мою ладонь!', [268.43, 269.57, 270.49, 270.89, 271.2], { end: 272.0 }),
+    ], endAt: 272.0, end: 'release' },
+  // B — «Смотри, герой»: куплет у чаши, три карты, одна переворачивается — пророчество
+  B: { from: 51.6, to: 80.8, bg: 'vorozheya-art.jpg', fy: .55, dim: .5,
+    lines: [
+      L('Она сидит у чаши с тёмной водой,', [52.0, 52.49, 53.30, 53.46, 54.10, 54.26, 55.23], { end: 56.3 }),
+      L('Сжимая веретено из кости людской,', [56.35, 57.03, 58.15, 58.30, 59.06], { end: 60.1 }),
+      L('«Смотри, герой, каков судьбы твоей дар»', [64.0, 64.90, 65.67, 66.23, 67.01, 67.57], { end: 68.0 }),
+    ],
+    cards: { rise: 60.0, flip: 68.0, card: 'Кровь', text: 'Пролитое не высохнет, пока не будет отдано.' },
+    small: { text: 'Кровь на углях шипит, закипает страсть', from: 68.0, to: 75.6 },
+    endAt: 75.6, end: 'oracle' },
+  // C — тизер к 17.11: силуэт «?», трещины на ударах, «ВСЮ ВЛАСТЬ», раскол — «18 ноября»
+  C: { from: 68.44, to: 90.0, fin: .05, bg: 'vorozheya.jpg', fy: .35, dim: .25,
+    lines: [
+      L('Кровь на углях шипит, закипает страсть.', [68.49, 69.09, 69.35, 70.0, 72.45, 73.55], { end: 76.1 }),
+      L('Ты заберёшь у королей', [76.26, 76.52, 77.60, 77.86], { end: 79.6 }),
+      L('ВСЮ ВЛАСТЬ', [79.68, 81.38], { end: 84.85, big: true }),
+    ],
+    cracks: [68.49, 72.45, 76.26, 79.68, 81.38], shatter: 84.85, endAt: 84.85, end: 'teaser' },
+};
+const CFG = CLIPS[new URLSearchParams(location.search).get('clip') || 'A'];
+let BEATS = [];
+const IMG = {};
+async function init() {
+  BEATS = await (await fetch('beats.json')).json();
+  IMG.bg = await load(CFG.bg);
+  for (const n of [0, 2, 4]) IMG['b' + n] = await load(`card-back-${n}.webp`);
+  for (const f of ['600 80px "Cormorant Garamond"', 'italic 500 60px "Cormorant Garamond"', '600 150px "Cormorant Unicase"', '500 30px Spectral', '30px "Noto Sans Runic"']) await document.fonts.load(f);
+  await document.fonts.ready;
+}
+const pulseAt = st => { let b = -9; for (const x of BEATS) { if (x > st) break; b = x; } return Math.exp(-(st - b) * 7); };
+
+function cover(x, img, s, fy, dx = 0) {
+  const k = Math.max(W / img.width, H / img.height) * s, w = img.width * k, h = img.height * k;
+  x.drawImage(img, (W - w) / 2 + dx, (H - h) * fy, w, h);
+}
+const EMB = Array.from({ length: 70 }, () => ({ x: rnd() * W, sp: 80 + rnd() * 180, ph: rnd() * 3000, sz: .8 + rnd() * 2.6, sw: 10 + rnd() * 30, f: .5 + rnd() * 1.5, g: rnd() < .4 }));
+function embers(x, t, a) {
+  x.save(); x.globalCompositeOperation = 'lighter';
+  for (const e of EMB) {
+    const y = H + 60 - ((t * e.sp + e.ph) % (H + 200)), xx = e.x + Math.sin(t * e.f + e.ph) * e.sw, fl = .5 + .5 * Math.sin(t * 9 * e.f + e.ph), col = e.g ? '214,163,92' : AURA;
+    const g = x.createRadialGradient(xx, y, 0, xx, y, e.sz * 5); g.addColorStop(0, `rgba(${col},${a * fl})`); g.addColorStop(1, `rgba(${col},0)`);
+    x.fillStyle = g; x.fillRect(xx - e.sz * 5, y - e.sz * 5, e.sz * 10, e.sz * 10);
+  }
+  x.restore();
+}
+const shade = (x, y0, y1, a) => { const g = x.createLinearGradient(0, y0, 0, y1); g.addColorStop(0, 'rgba(6,4,10,0)'); g.addColorStop(1, `rgba(6,4,10,${a})`); x.fillStyle = g; x.fillRect(0, y0, W, y1 - y0); };
+
+// ── кинетический текст: слова проявляются по своему времени, текущее светится; строка уходит вверх ──
+function wrap(x, words, max) {
+  const rows = [[]]; let w = 0; const sp = x.measureText(' ').width;
+  for (const o of words) { const ww = x.measureText(o.w).width; if (w + ww > max && rows[rows.length - 1].length) { rows.push([]); w = 0; } rows[rows.length - 1].push({ ...o, ww }); w += ww + sp; }
+  return rows;
+}
+function lyrics(x, st, cy) {
+  CFG.lines.forEach((ln, li) => {
+    const a0 = ln.words[0].a, end = ln.end ?? CFG.lines[li + 1]?.words[0].a ?? CFG.endAt;
+    // строка успевает уйти до появления следующей — без наложений
+    if (st < a0 - .05 || st > end) return;
+    const out = cl((st - (end - .25)) / .25);
+    x.save(); x.globalAlpha = 1 - out; x.translate(0, -out * 60);
+    const big = ln.big, size = big ? 210 : 82;
+    x.font = big ? `600 ${size}px "Cormorant Unicase"` : `600 ${size}px "Cormorant Garamond"`; x.letterSpacing = big ? '10px' : '0px';
+    x.textBaseline = 'alphabetic';
+    const rows = wrap(x, ln.words, 960), lh = size * 1.12, sp = x.measureText(' ').width;
+    rows.forEach((row, ri) => {
+      const rw = row.reduce((s, o) => s + o.ww, 0) + sp * (row.length - 1); let xx = (W - rw) / 2;
+      const y = cy + (ri - (rows.length - 1) / 2) * lh + size * .35;
+      row.forEach(o => {
+        const k = ease((st - o.a) / .22), i = ln.words.indexOf(ln.words.find(w => w.a === o.a && w.w === o.w)), next = ln.words[i + 1]?.a ?? end;
+        const hot = st >= o.a && st < next, vor = /^[«]?ворож/i.test(o.w);
+        if (k > 0) {
+          x.save(); x.globalAlpha = k; x.translate(0, (1 - k) * 26);
+          x.shadowColor = hot || big ? `rgba(${AURA},.95)` : 'rgba(0,0,0,.9)'; x.shadowBlur = hot || big ? 34 : 18;
+          x.fillStyle = vor ? '#d9c4ff' : hot ? '#ffffff' : '#ecdccf'; x.fillText(o.w, xx, y);
+          if (big) { x.shadowBlur = 90; x.fillStyle = `rgba(${AURA},.35)`; x.fillText(o.w, xx, y); }
+          x.restore();
+        }
+        xx += o.ww + sp;
+      });
+    });
+    x.restore();
+  });
+}
+
+// ── «номера» ──
+function chant(x, st) {
+  for (const a of CFG.chant || []) {
+    const u = st - a; if (u < 0 || u > .7) continue;
+    const k = ease(u / .12), f = 1 - cl((u - .35) / .35);
+    x.save(); x.globalAlpha = f; x.translate(W / 2, 1180); x.scale(1.5 - .5 * k, 1.5 - .5 * k);
+    x.font = '600 230px "Cormorant Unicase"'; x.textAlign = 'center'; x.shadowColor = `rgba(${AURA},1)`; x.shadowBlur = 50; x.fillStyle = '#f3e9ff'; x.fillText('ЭЙ!', 0, 80); x.restore();
+  }
+}
+function cardFront(x, w, h, card) {
+  const g = x.createRadialGradient(0, -h * .1, 10, 0, 0, h * .7); g.addColorStop(0, '#eedcb8'); g.addColorStop(.7, '#cdb083'); g.addColorStop(1, '#9c7b50');
+  x.fillStyle = g; x.beginPath(); x.roundRect(-w / 2, -h / 2, w, h, 16); x.fill();
+  x.strokeStyle = 'rgba(70,35,10,.6)'; x.lineWidth = 3; x.beginPath(); x.roundRect(-w / 2 + 14, -h / 2 + 14, w - 28, h - 28, 10); x.stroke();
+  // око
+  x.save(); x.translate(0, -40); x.strokeStyle = 'rgba(58,35,18,.75)'; x.lineWidth = 5; x.beginPath(); x.ellipse(0, 0, 70, 38, 0, 0, 7); x.stroke(); x.fillStyle = 'rgba(58,35,18,.75)'; x.beginPath(); x.arc(0, 0, 16, 0, 7); x.fill(); x.restore();
+  x.fillStyle = '#3a2312'; x.font = '600 52px "Cormorant Unicase"'; x.textAlign = 'center'; x.letterSpacing = '4px'; x.fillText(card.toUpperCase(), 0, 110);
+}
+function cards(x, st) {
+  const C = CFG.cards; if (!C) return;
+  const k = ease((st - C.rise) / 1.1); if (k <= 0) return;
+  const cw = 250, ch = 475, y0 = 1330 + (1 - k) * 700;
+  [[-300, -8, 'b0'], [0, 0, 'b2'], [300, 8, 'b4']].forEach(([dx, rot, img], i) => {
+    const bob = Math.sin(st * 2 + i) * 8, flip = i === 1 ? cl((st - C.flip) / .55) : 0, sx = Math.cos(flip * Math.PI);
+    x.save(); x.translate(W / 2 + dx, y0 + bob - (i === 1 ? ease(flip) * 120 : 0)); x.rotate(rot * Math.PI / 180 * (1 - flip));
+    const sc = i === 1 ? 1 + .25 * ease(flip) : 1; x.scale(Math.abs(sx) * sc, sc);
+    x.shadowColor = flip > .5 ? `rgba(${AURA},.8)` : 'rgba(0,0,0,.8)'; x.shadowBlur = flip > .5 ? 60 : 30;
+    if (sx >= 0) x.drawImage(IMG[img], -cw / 2, -ch / 2, cw, ch); else { x.shadowBlur = 0; cardFront(x, cw, ch, C.card); }
+    x.restore();
+  });
+  // пророчество под картами
+  const kp = ease((st - C.flip - .5) / .6);
+  if (kp > 0) {
+    x.save(); x.globalAlpha = kp; x.textAlign = 'center'; x.font = 'italic 500 66px "Cormorant Garamond"'; x.fillStyle = '#f3e9ff'; x.shadowColor = `rgba(${AURA},.8)`; x.shadowBlur = 26;
+    const words = C.text.split(' '), rows = ['']; for (const w of words) { const t = rows[rows.length - 1] ? rows[rows.length - 1] + ' ' + w : w; if (x.measureText(t).width > 900) rows.push(w); else rows[rows.length - 1] = t; }
+    rows.forEach((r, i) => x.fillText(i === 0 ? '«' + r : r + (i === rows.length - 1 ? '»' : ''), W / 2, 1730 + i * 76 - (rows.length - 1) * 38 + (1 - kp) * 30));
+    x.restore();
+  }
+}
+function smallLine(x, st) {
+  const s = CFG.small; if (!s || st < s.from || st > s.to + .3) return;
+  const k = ease((st - s.from) / .4) * (1 - cl((st - s.to) / .3));
+  x.save(); x.globalAlpha = k; x.textAlign = 'center'; x.font = '500 30px Spectral'; x.letterSpacing = '6px'; x.fillStyle = '#d6a35c'; x.fillText(s.text.toUpperCase(), W / 2, 420); x.restore();
+}
+// трещины: звезда из лучей с изломами, растёт за 0.2 с и остаётся
+const CR = (CFG.cracks || []).map(a => ({ a, x: 160 + rnd() * 760, y: 300 + rnd() * 1300, rays: Array.from({ length: 7 + (rnd() * 5 | 0) }, () => ({ ang: rnd() * 7, len: 180 + rnd() * 420, k: rnd() })) }));
+function cracks(x, st) {
+  x.save(); x.strokeStyle = 'rgba(240,230,255,.75)'; x.shadowColor = `rgba(${AURA},.9)`; x.shadowBlur = 10; x.lineCap = 'round';
+  for (const c of CR) {
+    const g = ease((st - c.a) / .2); if (g <= 0) continue;
+    const fl = Math.max(0, 1 - (st - c.a) / .2); if (fl > 0) { const r = x.createRadialGradient(c.x, c.y, 0, c.x, c.y, 220); r.addColorStop(0, `rgba(255,255,255,${.6 * fl})`); r.addColorStop(1, 'rgba(255,255,255,0)'); x.fillStyle = r; x.fillRect(0, 0, W, H); }
+    for (const r of c.rays) {
+      x.lineWidth = 1.2 + r.k * 1.6; x.beginPath(); x.moveTo(c.x, c.y);
+      const n = 4; for (let i = 1; i <= n; i++) { const d = r.len * g * i / n, j = (Math.sin(r.ang * 13 + i * 7) * .12); x.lineTo(c.x + Math.cos(r.ang + j) * d, c.y + Math.sin(r.ang + j) * d); }
+      x.stroke();
+    }
+  }
+  x.restore();
+}
+
+// ── концовки ──
+function logoMark(x, cx, cy, s, a, t) {
+  x.save(); x.globalAlpha = a; x.translate(cx, cy); x.scale(s, s);
+  x.save(); x.translate(-48, -268); x.scale(1.5, 1.5); x.strokeStyle = x.fillStyle = '#d6a35c'; x.lineWidth = 3; x.lineJoin = x.lineCap = 'round'; x.shadowColor = 'rgba(214,163,92,.7)'; x.shadowBlur = 18;
+  x.beginPath(); [[10, 46], [6, 20], [20, 32], [32, 12], [44, 32], [58, 20], [54, 46]].forEach(([p, q], i) => i ? x.lineTo(p, q) : x.moveTo(p, q)); x.closePath(); x.stroke();
+  x.beginPath(); x.moveTo(12, 52); x.lineTo(52, 52); x.stroke(); x.beginPath(); x.arc(32, 34, 3, 0, 7); x.fill(); x.restore();
+  x.textAlign = 'center'; x.font = '600 158px "Cormorant Unicase"'; x.letterSpacing = '6px'; x.shadowColor = 'rgba(0,0,0,.9)'; x.shadowBlur = 30; x.fillStyle = '#f3e2d6'; x.fillText('ОСКОЛКИ', 0, -18);
+  const v = .9 + .1 * Math.sin(t * 5.2); x.font = '600 184px "Cormorant Unicase"'; x.letterSpacing = '14px';
+  for (const [b, al] of [[110, .5], [50, .8], [22, 1]]) { x.shadowColor = `rgba(255,45,149,${al * v})`; x.shadowBlur = b; x.fillStyle = '#ff2d95'; x.fillText('ХАОСА', 0, 150); }
+  x.shadowBlur = 4; x.shadowColor = 'rgba(255,230,245,.9)'; x.fillStyle = '#ffd0e8'; x.fillText('ХАОСА', 0, 150);
+  x.restore();
+}
+function endCard(x, st, t) {
+  const u = st - CFG.endAt; if (u < 0) return;
+  const k = ease(u / .6);
+  x.save(); x.globalAlpha = k; x.fillStyle = '#06040a'; x.fillRect(0, 0, W, H); x.restore();
+  { const g = x.createRadialGradient(W / 2, 900, 60, W / 2, 900, 900); g.addColorStop(0, `rgba(${AURA},${.12 * k})`); g.addColorStop(1, `rgba(${AURA},0)`); x.fillStyle = g; x.fillRect(0, 0, W, H); }
+  embers(x, t, .8 * k);
+  x.save(); const zs = 1 + .025 * u; x.translate(W / 2, H / 2); x.scale(zs, zs); x.translate(-W / 2, -H / 2);
+  const txt = (s, font, y, col, al, ls = '0px', glow) => { x.save(); x.globalAlpha = al; x.textAlign = 'center'; x.font = font; x.letterSpacing = ls; x.fillStyle = col; if (glow) { x.shadowColor = glow; x.shadowBlur = 30; } x.fillText(s, W / 2, y); x.restore(); };
+  if (CFG.end === 'release') {
+    logoMark(x, W / 2, 640, .72, k, t);
+    txt('ВОРОЖЕЯ', '600 150px "Cormorant Unicase"', 1060, '#e6d6ff', ease((u - .25) / .6), '8px', `rgba(${AURA},.9)`);
+    txt('НОВЫЙ ТРЕК', '500 32px Spectral', 1150, '#d6a35c', ease((u - .45) / .6), '14px');
+    txt('VK Музыка · Яндекс Музыка', 'italic 500 54px "Cormorant Garamond"', 1250, '#f3e2d6', ease((u - .6) / .6));
+    txt('OSKOLKIHAOSA.RU', '500 32px Spectral', 1400, '#f3e2d6', ease((u - .8) / .6), '12px', 'rgba(255,45,149,.6)');
+  } else if (CFG.end === 'oracle') {
+    txt('ВЫТЯНИ', '600 120px "Cormorant Unicase"', 640, '#e6d6ff', k, '8px', `rgba(${AURA},.9)`);
+    txt('СВОЮ КАРТУ', '600 120px "Cormorant Unicase"', 760, '#e6d6ff', k, '8px', `rgba(${AURA},.9)`);
+    txt('Ворожея раскладывает трижды в день', 'italic 500 54px "Cormorant Garamond"', 860, '#f3e2d6', ease((u - .3) / .6));
+    [[-300, -8, 'b0'], [0, 0, 'b2'], [300, 8, 'b4']].forEach(([dx, r, img], i) => { const kk = ease((u - .2 - i * .08) / .6); x.save(); x.globalAlpha = kk; x.translate(W / 2 + dx, 1180 + (1 - kk) * 120); x.rotate(r * Math.PI / 180); x.shadowColor = 'rgba(0,0,0,.8)'; x.shadowBlur = 30; x.drawImage(IMG[img], -110, -209, 220, 418); x.restore(); });
+    txt('OSKOLKIHAOSA.RU', '500 36px Spectral', 1560, '#f3e2d6', ease((u - .6) / .6), '12px', 'rgba(255,45,149,.6)');
+    txt('РАЗДЕЛ «ГАДАНИЕ»', '500 26px Spectral', 1620, '#d6a35c', ease((u - .7) / .6), '10px');
+  } else {
+    txt('ВОРОЖЕЯ', '600 170px "Cormorant Unicase"', 900, '#e6d6ff', k, '10px', `rgba(${AURA},1)`);
+    txt('18 НОЯБРЯ', '600 92px "Cormorant Unicase"', 1040, '#f3e2d6', ease((u - .3) / .5), '12px');
+    txt('VK Музыка · Яндекс Музыка', 'italic 500 50px "Cormorant Garamond"', 1150, '#d6a35c', ease((u - .5) / .5));
+    txt('ОСКОЛКИ ХАОСА', '500 30px Spectral', 1700, '#f3e2d6', ease((u - .7) / .5), '14px');
+  }
+  x.restore();
+}
+
+// ── раскол (тизер): кадр рассыпается радиальными осколками ──
+let SNAP = null; const SH = [];
+function buildShards(cx, cy) {
+  const rays = []; let a = rnd() * .3; while (a < 6.1) { rays.push(a); a += .26 + rnd() * .3; }
+  const P = (g, r) => [cx + Math.cos(g) * r, cy + Math.sin(g) * r];
+  rays.forEach((g, i) => { const g2 = rays[(i + 1) % rays.length] + (i === rays.length - 1 ? 6.283 : 0); let r0 = 0;
+    for (const r1 of [220, 520, 900, 1400, 2200]) { const R1 = r1 + (rnd() - .5) * 80; const poly = r0 ? [P(g, r0), P(g2, r0), P(g2, R1), P(g, R1)] : [[cx, cy], P(g, R1), P(g2, R1)];
+      const mx = poly.reduce((s, p) => s + p[0], 0) / poly.length, my = poly.reduce((s, p) => s + p[1], 0) / poly.length, d = Math.atan2(my - cy, mx - cx);
+      SH.push({ poly, mx, my, vx: Math.cos(d) * (300 + rnd() * 400), vy: Math.sin(d) * (240 + rnd() * 260) - 150, vr: (rnd() - .5) * 3, delay: Math.hypot(mx - cx, my - cy) / 3600 }); r0 = R1; } });
+}
+function shatter(st, drawScene) {
+  if (CFG.shatter == null || st < CFG.shatter) return false;
+  if (!SNAP) { SNAP = document.createElement('canvas'); SNAP.width = W; SNAP.height = H; drawScene(SNAP.getContext('2d'), CFG.shatter - .01); buildShards(W / 2, 900); }
+  const s = st - CFG.shatter;
+  for (const p of SH) {
+    const u = Math.max(0, s - p.delay); if (u > 1.5) continue;
+    const al = 1 - cl((u - .3) / .7); if (al <= 0) continue;
+    X.save(); X.globalAlpha = al; X.translate(p.mx + p.vx * u, p.my + p.vy * u + 1800 * u * u); X.rotate(p.vr * u); X.translate(-p.mx, -p.my);
+    X.beginPath(); p.poly.forEach(([a, b], i) => i ? X.lineTo(a, b) : X.moveTo(a, b)); X.closePath(); X.save(); X.clip(); X.drawImage(SNAP, 0, 0); X.restore();
+    X.strokeStyle = 'rgba(255,255,255,.7)'; X.lineWidth = 1.6; X.stroke(); X.restore();
+  }
+  return true;
+}
+
+function scene(x, st) {
+  const t = st - CFG.from, p = pulseAt(st);
+  x.fillStyle = '#06040a'; x.fillRect(0, 0, W, H);
+  // фон: медленный наезд + толчок на долю
+  cover(x, IMG.bg, 1.06 + .08 * (t / (CFG.to - CFG.from)) + .014 * p, CFG.fy, Math.sin(t * .3) * 10);
+  if (CFG.dim) { x.fillStyle = `rgba(6,4,10,${CFG.dim})`; x.fillRect(0, 0, W, H); }
+  const g = x.createRadialGradient(W / 2, 760, 80, W / 2, 760, 1100); g.addColorStop(0, `rgba(${AURA},${.08 + .16 * p})`); g.addColorStop(1, `rgba(${AURA},0)`); x.fillStyle = g; x.fillRect(0, 0, W, H);
+  if (CFG.bg === 'vorozheya.jpg') { // туман над силуэтом
+    for (let i = 0; i < 3; i++) { const fx = W / 2 + Math.sin(t * .4 + i * 2) * 300, fy = 700 + i * 380 + Math.cos(t * .3 + i) * 80, f = x.createRadialGradient(fx, fy, 0, fx, fy, 520); f.addColorStop(0, 'rgba(190,170,230,.13)'); f.addColorStop(1, 'rgba(190,170,230,0)'); x.fillStyle = f; x.fillRect(0, 0, W, H); }
+  }
+  shade(x, 900, H, .9);
+  embers(x, t, .75);
+  cracks(x, st);
+  chant(x, st);
+  smallLine(x, st);
+  cards(x, st);
+  lyrics(x, st, CFG.cards ? 1180 : 1400);
+}
+window.render = t => {
+  const st = CFG.from + t;
+  if (CFG.shatter != null && st >= CFG.shatter) { // после раскола: концовка, поверх неё падают осколки кадра
+    X.fillStyle = '#06040a'; X.fillRect(0, 0, W, H); embers(X, t, .6); endCard(X, st, t); shatter(st, scene);
+  } else { X.save(); scene(X, st); X.restore(); endCard(X, st, t); }
+  const fi = 1 - cl(t / (CFG.fin ?? .25)), fo = cl((st - (CFG.to - .45)) / .45), f = Math.max(fi, fo);
+  if (f > 0) { X.fillStyle = `rgba(0,0,0,${f})`; X.fillRect(0, 0, W, H); }
+};
+window.DUR = CFG.to - CFG.from;
+window.ready = init();
+</script></body></html>

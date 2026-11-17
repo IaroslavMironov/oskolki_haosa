@@ -1,0 +1,20 @@
+# Глашатай — автопостинг «Осколков хаоса». Свой пользователь, свой Node 24 в /opt/glashatai/node: системный Node 22 соседей не трогаем.
+[Unit]
+Description=Глашатай: автопостинг Осколков хаоса
+After=network-online.target
+
+[Service]
+User=glashatai
+WorkingDirectory=/opt/glashatai/repo/tools/autopost
+EnvironmentFile=/etc/glashatai.env
+ExecStart=/opt/glashatai/node/bin/node --disable-warning=ExperimentalWarning server.js
+Restart=always
+RestartSec=5
+MemoryMax=500M
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/glashatai /var/www/glashatai-media
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

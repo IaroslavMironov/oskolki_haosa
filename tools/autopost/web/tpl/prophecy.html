@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8">
+<!-- Картинка «Пророчество дня» 1080×1350: ?card=Око&text=… Шаблон — из docs/контент/ворожея/исходники/poster.html. -->
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Unicase:wght@600&family=Cormorant+Garamond:ital,wght@1,500&family=Spectral:wght@500&display=swap" rel="stylesheet">
+<style>
+  :root { --aura: 201,168,255; --gold: #d6a35c; --bone: #f3e2d6; }
+  html, body { margin: 0; background: #06040a; }
+  .p { position: relative; width: 1080px; height: 1350px; overflow: hidden; color: var(--bone);
+    background: radial-gradient(ellipse at 50% 35%, #24163a 0%, #0c0812 60%, #06040a 100%);
+    display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 0 110px; box-sizing: border-box; }
+  .kick { font: 500 26px/1 Spectral, serif; letter-spacing: .4em; text-transform: uppercase; color: var(--gold); }
+  .front { width: 360px; height: 560px; margin: 50px auto 56px; border-radius: 18px; position: relative; color: #3a2312; flex: none;
+    background: radial-gradient(ellipse at 50% 40%, #eedcb8, #cdb083 70%, #9c7b50); box-shadow: inset 0 0 40px rgba(70,35,10,.5), 0 0 70px rgba(var(--aura),.5); }
+  .front::before { content: ''; position: absolute; inset: 16px; border: 2px solid rgba(70,35,10,.5); border-radius: 12px; }
+  .front svg { position: absolute; left: 50%; top: 150px; translate: -50% 0; width: 170px; }
+  .front b { position: absolute; left: 20px; right: 20px; bottom: 120px; font: 600 56px/1 'Cormorant Unicase', serif; letter-spacing: .06em; }
+  .front b.long { font-size: 44px; }
+  .quote { font: italic 500 58px/1.3 'Cormorant Garamond', serif; color: #f3e9ff; text-shadow: 0 0 26px rgba(var(--aura),.6); }
+  .url { font: 500 28px/1 Spectral, serif; letter-spacing: .36em; text-shadow: 0 0 16px rgba(255,45,149,.6); margin-top: 22px; }
+</style></head>
+<body>
+<div class="p">
+  <div class="kick">Пророчество дня</div>
+  <div class="front"><svg viewBox="0 0 64 40"><ellipse cx="32" cy="20" rx="29" ry="16" fill="none" stroke="rgba(58,35,18,.75)" stroke-width="3"/><circle cx="32" cy="20" r="7" fill="rgba(58,35,18,.75)"/></svg><b id="card"></b></div>
+  <div class="quote" id="text"></div>
+  <div class="kick" style="margin-top:56px;letter-spacing:.3em;color:var(--bone);opacity:.75">Вытяни свою карту</div>
+  <div class="url">OSKOLKIHAOSA.RU</div>
+</div>
+<script>
+  const q = new URLSearchParams(location.search);
+  const card = q.get('card') || 'Око';
+  document.getElementById('card').textContent = card;
+  document.getElementById('card').className = card.length > 9 ? 'long' : '';
+  document.getElementById('text').textContent = `«${q.get('text') || ''}»`;
+</script>
+</body></html>
