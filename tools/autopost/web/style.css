@@ -429,3 +429,8 @@ body.readonly :is(input, textarea, select) { pointer-events: none; }
 .acc .vkid h4 { margin: 0 0 4px; font-size: 14px; }
 body.readonly :is(.an-music, .vkid a) { display: none !important; }
 
+
+/* Галочка «Ворожея отвечает» в редакторе */
+label.check { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; }
+label.check input { width: auto; margin: 0; }
+label.check small { flex-basis: 100%; }

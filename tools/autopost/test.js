@@ -228,3 +228,20 @@ test('Telegram: кнопки «слушать» ведут на последню
   assert.deepEqual(urls(after), ['https://vk.ru/audio-2001896757_156896757', 'https://music.yandex.ru/album/44980597/track/158332125']);
   assert.deepEqual(after.inline_keyboard[0].map((b) => b.style), ['primary', 'success']);
 });
+
+test('Ворожея отвечает: номер карты из комментария, 1–3 — случайная карта, 4–42 — по номеру', async () => {
+  const { cardNumber, replyText } = await import('./oracle.js');
+  assert.deepEqual(['2', 'карта 3!', '№17', ' 42 ', 'вторая', '43', '0', 'мне 25 лет и я люблю эту песню очень сильно правда', '1 и 2'].map(cardNumber), [2, 3, 17, 42, null, null, null, null, null]);
+  const ctx = { deck: [{ card: 'А', text: 'а' }, { card: 'Б', text: 'б' }, { card: 'В', text: 'в' }, { card: 'Г', text: 'г' }], song: 'Ворожея' };
+  const r = replyText(2, ctx, () => 0.6);
+  assert.equal(r.card, 3); assert.match(r.text, /Вторая карта — «В»\.\n«в»$/);
+  assert.match(replyText(4, ctx, () => 0).text, /Карта №4 — «Г»/);
+});
+
+test('Instagram Reels без обложки в очередь не встаёт', async () => {
+  const pid = Number(run("insert into posts (title, kind, caption, media, approved_at) values ('reel','video','подпись',?,?)", JSON.stringify([rel(clip)]), now()).lastInsertRowid);
+  const t = { post_id: pid, platform: 'instagram', format: 'reels', mode: 'auto', planned_at: now() };
+  assert.ok((await problems(t)).some((x) => /выберите обложку/.test(x)));
+  run('update posts set cover_sec=1 where id=?', pid);
+  assert.ok(!(await problems(t)).some((x) => /выберите обложку/.test(x)));
+});

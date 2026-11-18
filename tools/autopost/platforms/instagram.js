@@ -155,6 +155,19 @@ async function comment({ account: acc, id, text }) {
   }
 }
 
+/* «Ворожея отвечает»: комментарии под своим роликом и ответ на них (право instagram_manage_comments). */
+export const oracle = {
+  async list(acc, media) {
+    const host = acc.secret.host || 'ig', me = String(acc.title || '').replace(/^@/, '');
+    const r = await get(host, `${media}/comments`, acc.secret.token, { fields: 'id,text,username,timestamp', limit: 50 });
+    return (r.data || []).map((c) => ({ id: c.id, text: c.text, author: c.username, own: c.username === me }));
+  },
+  async reply(acc, comment, text) {
+    const r = await post(acc.secret.host || 'ig', `${comment}/replies`, acc.secret.token, { message: text }, { safe: true });
+    return r.id;
+  },
+};
+
 async function followers(acc) {
   const r = await get(acc.secret.host || 'ig', acc.secret.user, acc.secret.token, { fields: 'followers_count,media_count' });
   return { count: r.followers_count ?? 0, posts: r.media_count ?? 0 };
@@ -175,7 +188,7 @@ async function test({ account: acc, video }) {
 }
 
 export default {
-  title: 'Instagram', color: '#e1306c', publish, stats, maintain, connectToken, test, followers, comment,
+  title: 'Instagram', color: '#e1306c', oracle, publish, stats, maintain, connectToken, test, followers, comment,
   connect: 'token',
   setup: 'Один раз, ≈20 минут. Reels загружаются напрямую с этого компьютера; фото и карусели Meta берёт только по публичной ссылке — без «Публичной папки» они идут вручную. Из России API Instagram доступен только через VPN/прокси.',
   fields: [['token', 'Маркер доступа (Создать маркер)'], ['igid', 'id аккаунта Instagram (цифры под ником)']],

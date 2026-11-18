@@ -25,7 +25,8 @@ hero() { # ключ песня файл
     -map "[vo]" -map "[ao]" -t 16 "${ENC[@]}" "$O/$3.mp4"
 }
 
-# Отряд из клипа «Сладкая дрянь» (полный файл IMG_7318.MP4): непрерывный отрывок со СВОИМ звуком — губы совпадают со словами.
+# Отряд из клипа «Сладкая дрянь» (полный файл IMG_7318.MP4): ОДИН непрерывный отрывок со своим звуком — губы совпадают, музыка не прыгает
+# (склейки кусков дают скачки по песне — Владислав 18.11: «музыка должна идти сплошняком»).
 # Кадр клипа — квадрат по центру (сдвиг X), сверху и снизу тот же кадр размыто. Надписи: имя (первая половина), роль и клип (вторая).
 CLIP=${CLIP:-$HOME/Downloads/IMG_7318.MP4}
 heroclip() { # ключ "нач-кон[,нач-кон…]" файл [сдвиг квадрата по X, 0–560]
@@ -48,6 +49,24 @@ heroclip() { # ключ "нач-кон[,нач-кон…]" файл [сдвиг 
     [1:v]$(ov 0.2 $(awk "BEGIN{print $H-0.3}"))[x];[2:v]$(ov $H $(awk "BEGIN{print $D-0.5}"))[y];
     [v][x]overlay=0:0[v2];[v2][y]overlay=0:0,noise=alls=3:allf=t[vo];
     [ca]afade=t=in:d=0.15,afade=t=out:st=$(awk "BEGIN{print $D-0.9}"):d=0.9[ao]" -map "[vo]" -map "[ao]" -t $D "${ENC[@]}" "$O/$3.mp4"
+}
+
+# Отряд, вариант Владислава 18.11: живой портрет — кусок клипа, где герой поёт/играет, ВПЕРЁД и один раз НАЗАД, чуть медленнее (SPEED),
+# дальше портрет с наездом и надписями; звук — песня самого героя (первые 16 с превью). Квадрат клипа 480×720 по сдвигу X.
+SPEED=${SPEED:-0.75}
+heropp() { # ключ песня файл начало конец [сдвиг X в кадре 1280×720]
+  local L LIVE K
+  L=$(awk "BEGIN{print $5-$4}"); LIVE=$(awk "BEGIN{print 2*$L/$SPEED}"); K=$(awk "BEGIN{print 16-$LIVE+0.6}")
+  ffmpeg -hide_banner -loglevel error -y -ss $4 -t $L -i "$CLIP" -loop 1 -framerate 24 -t $K -i "$R/$1.jpg" \
+    -loop 1 -t 16 -i "$OV/$1-a.png" -loop 1 -t 16 -i "$OV/$1-b.png" -i "$R/media/previews/$2.mp3" -filter_complex "
+    [0:v]fps=24,crop=480:720:${6:-400}:0,scale=1280:1920:flags=lanczos,crop=1080:1920,unsharp=5:5:0.5,setpts=PTS/$SPEED,split[f][r0];
+    [r0]reverse[r];[f][r]concat=n=2:v=1:a=0,fps=24,settb=1/24,format=yuv420p,setsar=1[v1];
+    [1:v]$(kb $K 0.07 0.25),format=yuv420p[v2];
+    [v1][v2]xfade=transition=fade:duration=0.6:offset=$(awk "BEGIN{print $LIVE-0.6}")[v];
+    [2:v]$(ov 0.3 7.7)[a];[3:v]$(ov 8.4 15.4)[b];
+    [v][a]overlay=0:0[x];[x][b]overlay=0:0,noise=alls=3:allf=t[vo];
+    [4:a]atrim=0:16,asetpts=PTS-STARTPTS,afade=t=in:d=0.2,afade=t=out:st=14.6:d=1.4[ao]" \
+    -map "[vo]" -map "[ao]" -t 16 "${ENC[@]}" "$O/$3.mp4"
 }
 
 # «Сладкая дрянь»: кусок тизера клипа 44–62 с по центру, фон — тот же кадр размытый
@@ -87,10 +106,14 @@ boynya() {
 
 for job in ${JOBS:-hero1 prop1 sd hero2 prop2 hero3 kor hero4 prop3}; do case $job in
   hero1) hero ayla hmelnaya-ten "3-отряд-айла" ;;
-  clip1) heroclip ayla 21.30-23.53,27.10-35.97 "3-отряд-айла" ;;
+  clip1) heroclip ayla 21.30-35.97 "3-отряд-айла" ;;
+  pp1) heropp ayla hmelnaya-ten "3-отряд-айла" 27.10 29.80 420 ;;
+  pp2) heropp miri sladkaya-dryan "7-отряд-мири" 49.40 52.40 400 ;;
+  pp3) heropp ilvy ryzhiy-meh "9-отряд-ильви" 39.90 42.90 400 ;;
+  pp4) heropp vulkan tron-eshche-zhdet "11-отряд-вулкан" 16.60 19.30 400 ;;
   clip2) heroclip miri 49.30-62.13 "7-отряд-мири" ;;
-  clip3) heroclip ilvy 19.37-21.30,39.83-42.93,74.87-80.07 "9-отряд-ильви" ;;
-  clip4) heroclip vulkan 16.53-19.37,62.13-65.53 "11-отряд-вулкан" ;;
+  clip3) heroclip ilvy 39.83-49.30 "9-отряд-ильви" ;;
+  clip4) heroclip vulkan 16.53-27.10 "11-отряд-вулкан" ;;
   prop1) prophecy пророчество-дня-пламя "4-пророчество-1-пламя" ;;
   sd) sladkaya "5-сладкая-дрянь-клип" ;;
   hero2) hero miri sladkaya-dryan "7-отряд-мири" ;;

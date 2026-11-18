@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import { statSync, openAsBlob } from 'node:fs';
 import { call, form } from './http.js';
-import { saveAccount, setting, rememberLogin, loginVerifier, forgetLogin } from '../secrets.js';
+import { account, saveAccount, setting, rememberLogin, loginVerifier, forgetLogin } from '../secrets.js';
 import { notSent } from '../publish.js';
 import { run, all } from '../db.js';
 
@@ -50,7 +50,8 @@ export const oauth = {
     forgetLogin(params.get('state'));
     const info = await api('/v2/user/info/?fields=open_id,display_name', s.access, null, 'GET').catch(() => null);
     const title = info?.user?.display_name || 'TikTok';
-    saveAccount('tiktok', { title, secret: s });
+    // срок ключа обновления уже записан в tokenRequest — не затираем его, меняем только название
+    saveAccount('tiktok', { title, secret: s, expiresAt: account('tiktok')?.expires_at ?? null });
     return { title };
   },
 };
@@ -100,7 +101,14 @@ async function publish({ account: acc, format, files: [file], caption, progress,
   await upload(init.upload_url, file, size, chunk, progress);
   // Ждём не больше 2 минут: публикации идут по очереди, долгое ожидание держит остальные. Файл уже у TikTok — дальше он доводит сам.
   for (let i = 0; i < 12; i++) {
-    const s = await api('/v2/post/publish/status/fetch/', access, { publish_id: init.publish_id });
+    // Обрыв связи при проверке статуса — не ошибка: файл уже у TikTok, просто спросим ещё раз (прокси иногда подвисает)
+    let s;
+    try { s = await api('/v2/post/publish/status/fetch/', access, { publish_id: init.publish_id }); } catch (e) {
+      if (e.auth) throw e;
+      progress(`TikTok обрабатывает… ${i * 10} с (нет связи — спрошу ещё раз)`);
+      await new Promise((r) => setTimeout(r, 10_000));
+      continue;
+    }
     if (s.status === 'FAILED') throw new Error(`TikTok: ${s.fail_reason || 'публикация не прошла'}`);
     if (s.status === 'SEND_TO_USER_INBOX') return { id: init.publish_id, pending: true, note: 'черновик во «Входящих» TikTok — откройте приложение и опубликуйте' };
     if (s.status === 'PUBLISH_COMPLETE') {
@@ -157,6 +165,8 @@ async function followers(acc) {
 export default {
   title: 'TikTok', color: '#25f4ee', oauth, publish, stats, test, followers,
   connect: 'oauth',
+  // приложение TikTok — «для компьютера»: возвращает только на localhost; с сервера вход завершают вставкой адреса (как у YouTube)
+  loopback: 'http://localhost:4777/oauth/tiktok/callback',
   setup: 'Сначала проверьте в приложении TikTok, что аккаунт группы вообще может загружать видео: аккаунтам из региона РФ TikTok это закрыл.',
   app: [['TIKTOK_CLIENT_KEY', 'Client key'], ['TIKTOK_CLIENT_SECRET', 'Client secret', true]],
   steps: [

@@ -142,6 +142,27 @@ async function comment({ account: acc, id, text }) {
   }
 }
 
+/* «Ворожея отвечает»: верхние комментарии под роликом и ответ веткой (право youtube.force-ssl). */
+export const oracle = {
+  async list(acc, video) {
+    const { body } = await call(`https://www.googleapis.com/youtube/v3/commentThreads?${form({ part: 'snippet', videoId: video, order: 'time', maxResults: 50, textFormat: 'plainText' })}`,
+      { headers: { authorization: `Bearer ${await token(acc)}` } }, { safe: true });
+    return (body.items || []).map((t) => {
+      const s = t.snippet.topLevelComment.snippet;
+      return { id: t.id, text: s.textOriginal, author: s.authorChannelId?.value || s.authorDisplayName, own: s.authorChannelId?.value === acc.secret.channel };
+    });
+  },
+  async reply(acc, thread, text) {
+    try {
+      const { body } = await call('https://www.googleapis.com/youtube/v3/comments?part=snippet', { method: 'POST', headers: { authorization: `Bearer ${await token(acc)}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ snippet: { parentId: thread, textOriginal: text } }) }, { safe: true });
+      return body.id;
+    } catch (e) {
+      throw new Error(e.status === 403 ? 'YouTube не дал ответить — войдите в YouTube в Глашатае заново (нужно право на комментарии)' : e.message);
+    }
+  },
+};
+
 async function followers(acc) {
   const { body } = await call('https://www.googleapis.com/youtube/v3/channels?part=statistics&mine=true', { headers: { authorization: `Bearer ${await token(acc)}` } }, { safe: true });
   const s = body.items?.[0]?.statistics || {};
@@ -149,7 +170,8 @@ async function followers(acc) {
 }
 
 export default {
-  title: 'YouTube', color: '#ff3b3b', oauth, publish, stats, test, followers, comment,
+  title: 'YouTube', color: '#ff3b3b', oauth, publish, stats, test, followers, comment, oracle,
+  loopback: 'http://localhost:4777/oauth/youtube/callback',
   setup: 'Один раз, ≈15 минут, под Google-аккаунтом, которому принадлежит канал группы.',
   app: [['YT_CLIENT_ID', 'Client ID'], ['YT_CLIENT_SECRET', 'Client secret', true]],
   steps: [

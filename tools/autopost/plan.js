@@ -16,7 +16,8 @@ const { PLAN, RELEASE, OUT, COMMENT = null } = await import(pathToFileURL(path.r
 
 const kind = (m) => (!m.length ? 'text' : m.some((f) => /\.(mp4|mov)$/i.test(f)) ? 'video' : m.length > 1 ? 'carousel' : 'image');
 const iso = (date, hhmm) => new Date(`${date}T${hhmm}:00+03:00`).toISOString();
-const AUTO = new Set(['youtube/short', 'instagram/reels', 'instagram/image', 'instagram/carousel', 'telegram/post', 'tiktok/draft']);
+// TikTok — вручную, как VK (18.11: черновики через API доходят, но приложение перестало их показывать во «Входящих»)
+const AUTO = new Set(['youtube/short', 'instagram/reels', 'instagram/image', 'instagram/carousel', 'telegram/post']);
 
 db.exec('begin');
 // Пересоздаём только черновики плана: опубликованное и стоящее в очереди не трогаем.
@@ -35,8 +36,8 @@ for (const it of PLAN) {
     // approved_at не ставим: подготовленное Claude ждёт утверждения человеком
     const id = Number(run('insert into posts (title, kind, caption, media, release, note, comment, cover_sec) values (?,?,?,?,?,?,?,?)',
       it.title, kind(it.media), o.caption ?? it.caption ?? '', JSON.stringify(it.media), RELEASE, note, comment, it.cover ?? null).lastInsertRowid);
-    run('insert into targets (post_id, platform, format, planned_at, mode, title) values (?,?,?,?,?,?)',
-      id, platform, format, iso(date, o.at || time), mode, o.title ?? null);
+    run('insert into targets (post_id, platform, format, planned_at, mode, title, oracle) values (?,?,?,?,?,?,?)',
+      id, platform, format, iso(date, o.at || time), mode, o.title ?? null, o.oracle ? 1 : 0);
     posts++; targets++;
   }
 }

@@ -142,7 +142,7 @@ function renderQueue() {
         <time>${time(ts[0].planned_at)}</time>
         <div class="thumb" data-edit="${p.id}">${thumb}</div>
         <div class="what">
-          <a href="#" data-edit="${p.id}" class="ttl">${esc(p.title)}</a>${!ts.some(toApprove) ? '' : ' <span class="pill gold" title="Подготовил Claude — посмотрите и утвердите, иначе в очередь не встанет">📝 на утверждении</span>'}
+          <a href="#" data-edit="${p.id}" class="ttl">${esc(p.title)}</a>${ts.some((t) => t.oracle) ? ' <span class="pill" title="Ворожея отвечает на номера карт в комментариях">🔮</span>' : ''}${!ts.some(toApprove) ? '' : ' <span class="pill gold" title="Подготовил Claude — посмотрите и утвердите, иначе в очередь не встанет">📝 на утверждении</span>'}
           <div class="sub muted small">${esc(p.caption.split('\n')[0].slice(0, 110))}</div>
           <div class="tl">${ts.map((t) => `<div class="tline">
             ${chip(t.platform, t.format)}${lvl(levelOf(t))} ${openTasks(t) ? `<button class="tag-task" data-edit="${t.post_id}" title="${esc(t.tasks.filter((x) => !x.done).map((x) => x.title).join(', '))}">✋ ${openTasks(t)} ${openTasks(t) === 1 ? 'задача' : 'задачи'}</button>` : ''} ${t.status === 'due' && t.remote_id ? '<span class="pill gold">Черновик в TikTok — опубликуйте</span>' : pill(t.status)}
@@ -239,7 +239,7 @@ function renderAccounts() {
         ${S.vkid.error ? `<p class="err small">${esc(S.vkid.error)}</p>` : ''}
         <a class="${S.vkid.connected ? 'ghost' : 'primary'} small btn" href="/oauth/vkid/start" target="_blank" rel="opener">${S.vkid.connected ? 'Войти заново' : 'Войти через VK ID'}</a></div>` : ''}
       <div class="acc-act">${connect}${p.connected && p.test ? `<button class="ghost small" data-test="${k}" title="Настоящий путь публикации, но ничего не видно подписчикам">Проверить</button>` : ''}${p.connected || p.status === 'error' ? `<button class="ghost danger small" data-disconnect="${k}">Отключить</button>` : ''}</div>
-      ${p.connect === 'oauth' && p.appReady && !p.connected ? `<form class="paste" data-paste="${k}">
+      ${p.connect === 'oauth' && p.appReady && (!p.connected || p.loopback) ? `<form class="paste" data-paste="${k}">
         <p class="muted small">Вход откроется в новой вкладке. Если после «Разрешить» там будет страница «не удаётся открыть <b>localhost</b>» — это нормально: скопируйте <b>весь адрес из адресной строки</b> этой вкладки и вставьте сюда.</p>
         <div class="tok"><input name="url" placeholder="http://localhost:4777/oauth/${k}/callback?state=…&code=…" autocomplete="off" spellcheck="false"><button class="primary">Завершить вход</button></div>
       </form>` : ''}
@@ -322,6 +322,7 @@ function openEditor(post, { copy = false } = {}) {
   f.title.value = post?.title || ''; f.caption.value = post?.caption || ''; f.release.value = post?.release || ''; f.note.value = post?.note || '';
   E.cover_sec = post?.cover_sec ?? null; E.cover_image = post?.cover_image ?? null; E.manualOpen = false;
   f.comment.value = post?.comment || '';
+  f.oracle.checked = !!post?.targets?.some((t) => t.oracle);
   const mine = E.targets[0];
   $('#ed-title').textContent = E.id ? (mine ? `Пост · ${S.platforms[mine.platform].title} · ${S.platforms[mine.platform].formats[mine.format]?.title || ''}` : 'Пост') : copy ? 'Копия на другую площадку' : 'Новый пост';
   $('#cap-hint').textContent = E.id && mine ? `для ${S.platforms[mine.platform].title}` : 'одна на все отмеченные площадки — потом у каждого поста можно поправить свою';
@@ -463,6 +464,7 @@ const COMMENT_TPL = '🎧 Полная песня — в VK Музыке и Ян
 
 /* Первый комментарий — только где у площадки есть комментарии; кто его оставит — Глашатай (auto) или вы (manual). */
 function renderComment() {
+  $('#oracle-box').hidden = !chosen().some((x) => ['youtube', 'instagram'].includes(x.t.platform));
   const sel = chosen().filter((x) => x.f.comment);
   $('#comment-box').hidden = !sel.length;
   if (!sel.length) return;
@@ -535,6 +537,7 @@ function formData() {
     title: f.title.value, caption: f.caption.value, release: f.release.value.trim(), note: f.note.value,
     kind: kindOf(E.media), media: E.media,
     comment: $('#comment-box').hidden ? null : $('#post-form').comment.value,
+    ...($('#oracle-box').hidden ? {} : { oracle: $('#post-form').oracle.checked }),
     cover_sec: E.media.some(isVideo) ? E.cover_sec : null, cover_image: E.media.some(isVideo) ? E.cover_image : null,
     targets: E.targets.filter((t) => !t.removed && (!t.id || ['draft', 'failed', 'scheduled'].includes(t.status) || (t.status === 'due' && !t.remote_id)))
       .map((t) => ({ id: t.id, platform: t.platform, format: t.format, planned_at: fromInput(t.planned), mode: t.mode || 'auto', caption: null, title: t.title || null })),

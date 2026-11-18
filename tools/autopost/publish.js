@@ -65,6 +65,9 @@ export async function problems(t, post = parsePost(get('select * from posts wher
   if (t.mode === 'auto' && f.rules.needsPublic && !publicTarget()) out.push(`${PLATFORMS[t.platform].title}: картинки берутся только по публичной ссылке, а папки нет — выберите «вручную» (ролики Reels идут автоматом)`);
   if (t.mode === 'auto' && f.rules.autoNoMedia && post.media.length) out.push(`${PLATFORMS[t.platform].title}: картинки автоматом не загружаются — выберите «вручную», Глашатай напомнит и даст файл с подписью`);
   if (t.mode === 'auto' && !DRY() && account(t.platform)?.status !== 'connected') out.push(`${PLATFORMS[t.platform].title} не подключён`);
+  // Reels без выбранной обложки Instagram берёт кадр сам, и сменить его потом нельзя (дважды выходило так 17–18.11)
+  if (t.platform === 'instagram' && t.format === 'reels' && post.media.some((m) => /\.(mp4|mov)$/i.test(m)) && post.cover_sec == null && !post.cover_image)
+    out.push('Instagram: выберите обложку (кадр или картинку) — без неё Reels выйдет с кадром, который выберет Instagram, и поменять его потом нельзя');
   return out;
 }
 

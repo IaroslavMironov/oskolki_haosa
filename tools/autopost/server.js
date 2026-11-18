@@ -1,6 +1,7 @@
 import http from 'node:http';
 import { createReadStream, existsSync, statSync, createWriteStream } from 'node:fs';
 import { readFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { pipeline } from 'node:stream/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -15,6 +16,7 @@ import { notify, linkStart, unlink, linkState, pollUpdates, botUsername } from '
 import { PLATFORMS } from './platforms/index.js';
 import { oauth as vkidOauth } from './platforms/vkid.js';
 import { snapshotFollowers, analyticsState, siteState, vkCommunity, saveMusic } from './analytics.js';
+import { oracleRound } from './oracle.js';
 import { publishDue, recoverInterrupted, collectStats, maintainAccounts, problems, DRY, fmt, tasksFor } from './publish.js';
 
 /*
@@ -33,6 +35,18 @@ const WEB = path.join(path.dirname(fileURLToPath(import.meta.url)), 'web');
 const TYPES = { '.jpg': 'image/jpeg', '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml' };
 
 const json = (res, code, body, headers = {}) => { res.writeHead(code, { 'content-type': 'application/json; charset=utf-8', ...headers }); res.end(JSON.stringify(body)); };
+/*
+ * GET-ответы и статика — с ETag: путь до сервера из-за границы медленный (~330 мс, мало пропускает), а кабинет
+ * опрашивает очередь каждые 5 с. Не изменилось — 304 без тела, браузер берёт своё. Поле now в отпечаток не входит.
+ */
+const etagOf = (s) => `"${createHash('sha1').update(s).digest('base64url')}"`;
+function sendTagged(req, res, type, body, tagSrc = body) {
+  const tag = etagOf(tagSrc);
+  // nginx при сжатии делает отпечаток «нестрогим» (W/"…") — сравниваем без этой приставки
+  if (String(req.headers['if-none-match'] || '').replace(/^W\//, '') === tag) { res.writeHead(304, { etag: tag, 'cache-control': 'no-cache' }); return res.end(); }
+  res.writeHead(200, { 'content-type': type, etag: tag, 'cache-control': 'no-cache' });
+  res.end(body);
+}
 const cookie = (value, maxAge) => `${COOKIE}=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${SECURE ? '; Secure' : ''}`;
 const esc = (x) => String(x).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 const page = (res, title, text) => { res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
@@ -46,6 +60,9 @@ const SERVICE = [
 ];
 const SETTING_KEYS = new Map([...SERVICE, ...Object.values(PLATFORMS).flatMap((p) => p.app || [])].map(([k, , secret]) => [k, !!secret]));
 const settingView = (k) => { const v = setting(k); return { set: !!v, value: SETTING_KEYS.get(k) ? null : v }; };
+// Адрес возврата после входа. У YouTube клиент Google «для компьютера»: он возвращает только на localhost —
+// с сервера страница не откроется, человек вставляет её адрес в кабинет («Завершить вход»).
+const redirectFor = (k) => PLATFORMS[k]?.loopback || `${BASE}/oauth/${k}/callback`;
 const readBody = async (req) => { let s = ''; for await (const c of req) s += c; return s ? JSON.parse(s) : {}; };
 
 // ---------- состояние для кабинета ----------
@@ -64,9 +81,9 @@ async function state(me) {
     vkid: (({ status, title, error } = account('vkid') || {}) => ({ connected: status === 'connected', title: title || null, error: error || null }))(),
     platforms: Object.fromEntries(Object.entries(PLATFORMS).map(([k, p]) => {
       const a = account(k);
-      const redirect = `${BASE}/oauth/${k}/callback`;
+      const redirect = redirectFor(k);
       const app = (p.app || []).map(([key, label, secret]) => ({ key, label, secret: !!secret, ...settingView(key) }));
-      return [k, { title: p.title, color: p.color, setup: p.setup, redirect, app, appReady: app.every((f) => f.set),
+      return [k, { title: p.title, color: p.color, setup: p.setup, redirect, loopback: !!p.loopback, app, appReady: app.every((f) => f.set),
         steps: (p.steps || []).map((x) => x.replaceAll('{redirect}', redirect)), test: !!p.test, connected: a?.status === 'connected', status: a?.status || 'off',
         account: a?.title || null, error: a?.error || null, expires: a?.expires_at || null, connect: p.connect || null, fields: p.fields || null,
         formats: Object.fromEntries(Object.entries(p.formats).map(([f, d]) => [f, { title: d.title, auto: d.auto, level: d.level || (d.auto ? 'full' : 'manual'), hint: d.hint, rules: d.rules, cover: d.cover || [], caption: d.caption || 'auto', manual: d.manual || [], comment: d.comment || null }])) }];
@@ -128,6 +145,8 @@ function savePost(b, id = null, by = null) {
       }
     }
     for (const tid of b.removeTargets || []) run("delete from targets where id=? and post_id=? and status in ('draft','failed','cancelled')", tid, id);
+    // «Ворожея отвечает» — только YouTube и Instagram (там можно отвечать на комментарии); включают на гадательных роликах
+    if ('oracle' in b) run("update targets set oracle=? where post_id=? and platform in ('youtube','instagram')", b.oracle ? 1 : 0, id);
     db.exec('commit');
   } catch (e) { db.exec('rollback'); throw e; }
   log(b.id ? 'пост изменён' : 'пост создан', { postId: id, by });
@@ -256,7 +275,7 @@ const ROUTES = [
     if (params.get('error')) return { error: `${p.title} ответил: ${params.get('error_description') || params.get('error')}` };
     if (!params.get('code')) return { error: 'В адресе нет кода входа — скопируйте адрес той страницы, что открылась после «Разрешить»' };
     try {
-      const r = await p.oauth.callback(params, `${BASE}/oauth/${m[1]}/callback`);
+      const r = await p.oauth.callback(params, redirectFor(m[1]));
       log(`${p.title}: подключено ${r.title || ''}`, { by: me.name });
       return { ok: true, title: r.title };
     } catch (e) {
@@ -381,7 +400,7 @@ async function handle(req, res) {
   const OAUTH = { ...PLATFORMS, vkid: { title: 'VK ID (статистика VK)', oauth: vkidOauth } };
   if (oauth && OAUTH[oauth[1]]?.oauth) {
     const p = OAUTH[oauth[1]];
-    const redirect = `${BASE}/oauth/${oauth[1]}/callback`;
+    const redirect = redirectFor(oauth[1]);
     // Разбор входа: что пришло на адрес возврата (код скрыт). ponytail: убрать, когда вход у всех заработает.
     console.log(new Date().toISOString(), `oauth ${oauth[1]} ${oauth[2]}`, url.search.replace(/code=[^&]+/, 'code=…'),
       '| ref:', req.headers.referer || '-', '| ua:', (req.headers['user-agent'] || '').slice(0, 90), '| sec-fetch:', req.headers['sec-fetch-mode'] || '-', req.headers['sec-purpose'] || '');
@@ -401,7 +420,12 @@ async function handle(req, res) {
     try {
       const r = await route[2](req.method === 'GET' ? {} : await readBody(req), route[1].exec(url.pathname), me);
       if (r?.logout) { logout(req); return json(res, 200, { ok: true }, { 'set-cookie': cookie('', 0) }); }
-      return r === null ? json(res, 404, { error: 'not_found' }) : json(res, r.error ? 400 : 200, r);
+      if (r === null) return json(res, 404, { error: 'not_found' });
+      if (req.method === 'GET' && !r.error) {
+        const body = JSON.stringify(r);
+        return sendTagged(req, res, 'application/json; charset=utf-8', body, 'now' in r ? JSON.stringify({ ...r, now: null }) : body);
+      }
+      return json(res, r.error ? 400 : 200, r);
     } catch (e) {
       return json(res, 400, { error: e.message });
     }
@@ -409,8 +433,9 @@ async function handle(req, res) {
   // Кабинет — статика из web/.
   const file = path.join(WEB, url.pathname === '/' ? 'index.html' : path.normalize(url.pathname));
   if (!file.startsWith(WEB) || !existsSync(file) || statSync(file).isDirectory()) return json(res, 404, { error: 'not_found' });
-  res.writeHead(200, { 'content-type': TYPES[path.extname(file)] || 'application/octet-stream', 'cache-control': 'no-cache' });
-  res.end(await readFile(file));
+  const st = statSync(file);
+  const type = TYPES[path.extname(file)] || 'application/octet-stream';
+  return sendTagged(req, res, type, await readFile(file), `${st.mtimeMs}-${st.size}`);
 }
 
 export const server = http.createServer((req, res) => handle(req, res).catch((e) => json(res, 500, { error: e.message })));
@@ -423,6 +448,8 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   // Раз в час: цифры публикаций (не чаще 6 ч на пост), снимок подписчиков (за день — последнее значение), продление ключей.
   const hourly = () => collectStats().then(snapshotFollowers).then(maintainAccounts).catch((e) => log(`цифры: ${e.message}`, { level: 'error' }));
   setInterval(hourly, 3600_000);
+  // «Ворожея отвечает» — комментарии с номером карты под включёнными роликами
+  setInterval(() => oracleRound().catch((e) => log(`Ворожея отвечает: ${e.message}`, { level: 'error' })), 30_000);
   hourly();
   publishDue();
   pollUpdates();
