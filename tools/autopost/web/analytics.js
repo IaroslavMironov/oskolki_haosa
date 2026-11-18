@@ -68,8 +68,9 @@ function site(s) {
 
 /* VK-сообщество за 30 дней (ключ администратора): охват по дням, посетители, подписались/отписались. */
 function vkBlock(v) {
+  if (v?.pending) return '<p class="an-muted">VK пока не открыл приложению «Глашатай» доступ к статистике сообщества — ждём ответа поддержки VK. Как откроют, нажмите «Войти через VK ID» в карточке «ВКонтакте» ещё раз, и здесь появятся охват, посетители и отписки. Цифры постов (просмотры, лайки, репосты) уже собираются — они в таблице ниже.</p>';
   if (!v?.connected) return '<p class="an-muted">Охват сообщества, посетители и отписки появятся после подтверждения бизнес-профиля в кабинете VK ID и входа «Войти через VK ID» в карточке «ВКонтакте». Цифры постов уже собираются сервисным ключом.</p>';
-  if (v.error) return `<p class="an-muted">VK: ${esc(v.error)}</p>`;
+  if (v.error) return `<p class="an-muted">${esc(v.error)}</p>`;
   const sum = (k) => v.days.reduce((a, d) => a + d[k], 0);
   return `<div class="an-site"><section class="an-tile"><header><span class="chip" style="--c:#4c8dff">Сообщество VK</span><span class="an-muted">30 дней</span></header>
     <div class="an-big">${fmt(Math.round(sum('reach') / Math.max(1, v.days.length)))}</div><div class="an-sub">охват в день, в среднем · из них подписчиков ${fmt(Math.round(sum('reach_subscribers') / Math.max(1, v.days.length)))}</div>

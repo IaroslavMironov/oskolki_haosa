@@ -143,7 +143,10 @@ export async function vkCommunity(force = false) {
   if (!force && vkCache && Date.now() - vkCache.at < 600_000) return vkCache.v;
   let v;
   try { const days = await communityStats(acc); v = days ? { connected: true, days } : { connected: false }; }
-  catch (e) { v = { connected: true, error: e.message }; }
+  catch (e) {
+    // 1051/15/28: VK не открыл приложению права на статистику (ждём ответа поддержки VK) — это не поломка
+    v = /\((1051|15|28)\)/.test(e.message) ? { connected: false, pending: true } : { connected: true, error: e.message };
+  }
   vkCache = { at: Date.now(), v };
   return v;
 }
