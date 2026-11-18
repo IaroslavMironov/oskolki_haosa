@@ -42,10 +42,10 @@ rsync -az --delete --no-owner --no-group \
 # Видео и аудио — с GitHub (репозиторий публичный): у каждого файла сверяем сумму, качаем только изменившиеся.
 # Файл, изменённый, но не отправленный в GitHub, сервер взять не может — предупреждаем: сначала «пушь».
 REMOTE=$(git rev-parse origin/dev 2>/dev/null || true)
-CHANGED=$(git status --porcelain -- docs '*.mp4' '*.mp3' 2>/dev/null | grep -E '\.(mp4|mov|mp3|wav)"?$' || true)
+CHANGED=$(git -c core.quotepath=off status --porcelain -- docs '*.mp4' '*.mp3' 2>/dev/null | grep -E '\.(mp4|mov|mp3|wav)"?$' || true)
 [ -n "$CHANGED" ] && echo "Внимание: эти медиафайлы не отправлены в GitHub — на сервере останутся прежние версии, сначала «пушь»:" && echo "$CHANGED"
 if [ -n "$REMOTE" ]; then
-  git ls-tree -r "$REMOTE" --name-only | grep -E '^(docs/|media/).*\.(mp4|mov|mp3|wav)$|^[^/]+\.(mp4|mp3)$' | while read -r f; do
+  git -c core.quotepath=off ls-tree -r "$REMOTE" --name-only | grep -E '^(docs/|media/).*\.(mp4|mov|mp3|wav)$|^[^/]+\.(mp4|mp3)$' | while read -r f; do
     [ -f "$f" ] && printf '%s  %s\n' "$(git show "$REMOTE:$f" | shasum -a 256 | cut -d' ' -f1)" "$f"
   done | ssh "$HOST" "cd /opt/glashatai/repo && while read -r sum f; do
       echo \"\$sum  \$f\" | sha256sum -c --quiet - >/dev/null 2>&1 && continue
