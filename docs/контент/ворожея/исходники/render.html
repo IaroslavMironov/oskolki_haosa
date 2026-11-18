@@ -45,6 +45,21 @@ const CLIPS = {
     ],
     cracks: [68.49, 72.45, 76.26, 79.68, 81.38], shatter: 84.85, endAt: 84.85, end: 'teaser' },
 };
+// строка, где время слов неточное: слова раскрываются равномерно за span секунд от начала строки
+const LP = (text, a, span, opt = {}) => { const w = text.split(' '); return L(text, w.map((_, i) => +(a + i * span / w.length).toFixed(2)), opt); };
+// D — куплет 2 (2:14): строки по сетке 4 с, тот же голос и темп, что в куплете 1
+CLIPS.D = { from: 133.6, to: 159.2, bg: 'vorozheya-art.jpg', fy: .9, dim: .35,
+  lines: [
+    LP('И пляшут искры на сухих угольках,', 134.2, 3.0, { end: 138.1 }),
+    LP('Её пророчество — погибели страх.', 138.24, 2.8, { end: 141.9 }),
+    LP('Она сплетает нити тёмных времён,', 142.0, 2.8, { end: 145.8 }),
+    LP('И падают знамёна павших корон.', 145.9, 2.9, { end: 149.8 }),
+    LP('«Иди вперёд! — вещает сквозь туман»', 150.0, 2.4, { end: 153.6 }),
+  ], endAt: 153.8, end: 'release' };
+// E — первый припев (1:25): по времени совпадает с финальным (A) со сдвигом −163,71 с (сверено по «сделай мне расклад»)
+{ const d = -163.71, A = CLIPS.A;
+  CLIPS.E = { ...A, chant: null, from: 84.2, to: 113.5, endAt: +(A.endAt + d).toFixed(2), bg: 'vorozheya-art.jpg', fy: .6,
+    lines: A.lines.map((l) => ({ ...l, words: l.words.map((w) => ({ ...w, a: +(w.a + d).toFixed(2) })), ...(l.end ? { end: +(l.end + d).toFixed(2) } : {}) })) }; }
 const CFG = CLIPS[new URLSearchParams(location.search).get('clip') || 'A'];
 let BEATS = [];
 const IMG = {};

@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { statSync, existsSync, readdirSync } from 'node:fs';
+import { statSync, existsSync, readdirSync, mkdirSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { ROOT, DATA } from './db.js';
 
@@ -85,7 +86,8 @@ export function listFiles() {
   const out = [];
   const walk = (dir) => {
     for (const e of readdirSync(dir, { withFileTypes: true })) {
-      if (e.name.startsWith('.') || e.name === 'исходники' || e.name === 'node_modules') continue;
+      // _проверка, _кадр-… — служебные файлы Глашатая, в библиотеку не показываем.
+      if (e.name.startsWith('.') || e.name.startsWith('_') || e.name === 'исходники' || e.name === 'node_modules') continue;
       const p = path.join(dir, e.name);
       if (e.isDirectory()) walk(p);
       else if (isVideo(p) || isImage(p)) out.push(path.relative(REPO, p));
@@ -93,4 +95,27 @@ export function listFiles() {
   };
   for (const d of [path.join(REPO, 'docs'), path.join(DATA, 'media')]) if (existsSync(d)) walk(d);
   return out.sort();
+}
+
+/** Миниатюра ролика для кабинета: маленький JPG-кадр, один раз на файл+секунду (имя меняется вместе с файлом). */
+const thumbJobs = new Map();
+export function thumbFile(rel, sec = 1) {
+  const p = abs(rel), { mtimeMs } = statSync(p);
+  const out = path.join(DATA, 'thumbs', `${createHash('sha1').update(`${p}|${mtimeMs}|${sec}`).digest('hex')}.jpg`);
+  if (existsSync(out)) return out;
+  if (!thumbJobs.has(out)) thumbJobs.set(out, (async () => {
+    mkdirSync(path.dirname(out), { recursive: true });
+    await exec('ffmpeg', ['-v', 'error', '-y', '-ss', String(sec), '-i', p, '-frames:v', '1', '-vf', 'scale=240:-2', '-q:v', '4', out]);
+    return out;
+  })().finally(() => thumbJobs.delete(out)));
+  return thumbJobs.get(out);
+}
+
+/** Обложка ролика файлом: своя картинка как есть или кадр на cover.sec. null — обложку не задавали. */
+export async function coverFile(video, cover = {}) {
+  if (cover.image) return cover.image;
+  if (cover.sec == null) return null;
+  const out = path.join(DATA, 'media', `_кадр-${path.basename(video, path.extname(video))}-${cover.sec}.jpg`);
+  if (!existsSync(out)) await exec('ffmpeg', ['-v', 'error', '-y', '-ss', String(cover.sec), '-i', video, '-frames:v', '1', '-q:v', '3', out]);
+  return out;
 }

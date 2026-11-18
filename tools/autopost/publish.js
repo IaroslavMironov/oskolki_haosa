@@ -3,6 +3,7 @@ import { account, setAccountStatus, setting } from './secrets.js';
 import { abs, check } from './media.js';
 import { PLATFORMS } from './platforms/index.js';
 import { notify } from './notify.js';
+import { publicTarget } from './pubmedia.js';
 
 /*
  * Публикация по расписанию. Правило из Нейро-продюсера (src/publish/service.js):
@@ -29,13 +30,40 @@ export const notSent = (message) => Object.assign(new Error(message), { notSent:
 export const fmt = (t) => PLATFORMS[t.platform]?.formats[t.format];
 export const captionOf = (t, post) => (t.caption ?? post.caption ?? '').trim();
 
+/*
+ * Задачи после публикации — то, что остаётся человеку: опубликовать черновик TikTok, оставить и закрепить комментарий.
+ * Хранятся у публикации (targets.tasks), отмечаются галочкой в кабинете; незакрытые — в «Требует внимания».
+ */
+export function tasksFor(t, post, { pending = false } = {}) {
+  const f = fmt(t), out = [];
+  if (pending) out.push({ key: 'publish', title: `Опубликовать черновик в ${PLATFORMS[t.platform].title}, вставив подпись`, copy: captionOf(t, post) || null, done: false });
+  if (post.comment?.trim() && f?.comment) {
+    out.push({ key: 'comment', title: 'Оставить первый комментарий', copy: post.comment.trim(), done: false });
+    out.push({ key: 'pin', title: 'Закрепить комментарий', done: false });
+  }
+  return out;
+}
+const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]);
+
+/** Напоминание о незакрытых задачах + тексты отдельными сообщениями (в Telegram моноширинный текст копируется касанием). */
+async function remindTasks(p, post, url, tasks) {
+  const open = tasks.filter((x) => !x.done);
+  if (!open.length) return;
+  await notify(`✋ ${p.title}, «${post.title}» — осталось:\n${open.map((x) => `• ${x.title}`).join('\n')}${url ? `\n${url}` : ''}`);
+  for (const x of open) if (x.copy) await notify(`<code>${esc(x.copy)}</code>`, { html: true });
+}
+
 /** Что мешает публикации (файлы, длина подписи, подключение). Пусто — можно ставить в очередь. */
 export async function problems(t, post = parsePost(get('select * from posts where id=?', t.post_id))) {
   const f = fmt(t);
   if (!f) return [`${t.platform}: формат «${t.format}» не поддерживается`];
   const out = await check(f.rules, post, captionOf(t, post));
+  if (t.post_id && !post.approved_at) out.push('пост не утверждён — откройте его и нажмите «Утвердить»');
   if (f.rules.title && !(t.title || post.title)) out.push('нужно название');
+  if (/\[(ссылка|вставить|TODO)[^\]]*\]/i.test(captionOf(t, post))) out.push('в подписи осталась заглушка вида «[ссылка]» — замените её');
   if (t.mode === 'auto' && !f.auto) out.push('этот формат площадка не даёт публиковать автоматически — только пакет для ручной');
+  if (t.mode === 'auto' && f.rules.needsPublic && !publicTarget()) out.push(`${PLATFORMS[t.platform].title}: картинки берутся только по публичной ссылке, а папки нет — выберите «вручную» (ролики Reels идут автоматом)`);
+  if (t.mode === 'auto' && f.rules.autoNoMedia && post.media.length) out.push(`${PLATFORMS[t.platform].title}: картинки автоматом не загружаются — выберите «вручную», Глашатай напомнит и даст файл с подписью`);
   if (t.mode === 'auto' && !DRY() && account(t.platform)?.status !== 'connected') out.push(`${PLATFORMS[t.platform].title} не подключён`);
   return out;
 }
@@ -76,11 +104,24 @@ async function publishOne(t) {
     const r = await publish({
       target: t, post, format: t.format, caption: captionOf(t, post), title: t.title || post.title,
       files: post.media.map(abs), account: acc, progress,
+      cover: { sec: post.cover_sec ?? null, image: post.cover_image ? abs(post.cover_image) : null },
     });
-    move(t.id, ['publishing'], 'published', { url: r.url ?? null, remote_id: r.id ?? null, published_at: now(), progress: null });
-    log(`${p.title}: опубликовано ${r.url || ''}${r.note ? ` — ${r.note}` : ''}`, ctx);
+    // Задачи после публикации; первый комментарий на YouTube и в Instagram Глашатай пробует оставить сам.
+    const tasks = tasksFor(t, post, { pending: r.pending });
+    const c = tasks.find((x) => x.key === 'comment');
+    if (c && !r.pending && fmt(t).comment === 'auto' && p.comment) {
+      try { await p.comment({ account: acc, id: r.id, text: c.copy }); Object.assign(c, { done: true, title: 'Комментарий оставлен Глашатаем', auto: true }); }
+      catch (e) { c.note = e.message; log(`${p.title}: комментарий не оставлен: ${e.message}`, { ...ctx, level: 'warn' }); }
+    }
+    // Полуавтомат (черновик TikTok): файл на площадке, но публикует человек — «ждёт вас», пока не отметит «вышло».
+    if (r.pending) move(t.id, ['publishing'], 'due', { remote_id: r.id ?? null, progress: null, error: null, tasks: JSON.stringify(tasks) });
+    else move(t.id, ['publishing'], 'published', { url: r.url ?? null, remote_id: r.id ?? null, published_at: now(), progress: null, tasks: JSON.stringify(tasks) });
+    log(`${p.title}: ${r.pending ? 'загружено, ждёт вашей публикации' : 'опубликовано'} ${r.url || ''}${r.note ? ` — ${r.note}` : ''}`, ctx);
     // Черновик TikTok человек дописывает в приложении — подпись приходит в Telegram, чтобы скопировать с телефона.
-    if (!DRY()) notify(`✅ ${p.title}: «${post.title}» ${r.url || ''}${r.note ? `\n${r.note}` : ''}${t.format === 'draft' ? `\n\nПодпись:\n${captionOf(t, post)}` : ''}`);
+    if (!DRY()) {
+      await notify(`${r.pending ? '◐' : '✅'} ${p.title}: «${post.title}» ${r.url || ''}${r.note ? `\n${r.note}` : ''}`);
+      await remindTasks(p, post, r.url, tasks);
+    }
   } catch (e) {
     const msg = String(e.message).slice(0, 500);
     if (e.auth) setAccountStatus(t.platform, 'error', msg);
@@ -116,16 +157,17 @@ export function recoverInterrupted() {
 }
 
 /** Цифры опубликованного (просмотры, лайки) — раз в 6 часов, первые 30 дней после выхода. */
-export async function collectStats() {
+export async function collectStats({ force = false } = {}) {
   if (DRY()) return;
-  const rows = all(`select * from targets where status='published' and remote_id is not null
-    and published_at > ? and (stats_at is null or stats_at < ?)`, new Date(Date.now() - 30 * 864e5).toISOString(), new Date(Date.now() - 6 * 3600e3).toISOString());
+  const rows = all(`select * from targets where status='published' and removed_at is null and (remote_id is not null or url is not null)
+    and published_at > ? and (stats_at is null or stats_at < ?)`, new Date(Date.now() - 30 * 864e5).toISOString(), new Date(Date.now() - (force ? 0 : 6 * 3600e3)).toISOString());
   for (const t of rows) {
     const p = PLATFORMS[t.platform];
     const acc = account(t.platform);
     if (!p.stats || acc?.status !== 'connected') continue;
     try {
       const s = await p.stats({ target: t, account: acc });
+      if (!s) continue;
       run('update targets set stats=?, stats_at=? where id=?', JSON.stringify(s), now(), t.id);
     } catch (e) { log(`${p.title}: цифры не собрались: ${e.message}`, { targetId: t.id, level: 'warn' }); }
   }

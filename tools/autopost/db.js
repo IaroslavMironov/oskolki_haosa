@@ -88,6 +88,20 @@ create table if not exists events (
 
 // Кто сделал действие — в журнал (появилось с входом по паролю).
 try { db.exec('alter table events add column actor text'); } catch { /* уже есть */ }
+// Обложка ролика: кадр (секунда) или своя картинка (путь как у media).
+// Утверждение: контент, который готовит Claude, не уходит в очередь, пока человек не нажмёт «Утвердить».
+// Посты, уже бывшие в работе до этого правила, считаются утверждёнными.
+// Удалено на самой площадке после публикации: в аналитике не показываем, цифры не собираем.
+try { db.exec('alter table targets add column removed_at text'); } catch { /* уже есть */ }
+// Только просмотр (брат следит за очередью): сервер не пустит такого ни к одному действию.
+try { db.exec('alter table users add column readonly integer not null default 0'); } catch { /* уже есть */ }
+try {
+  db.exec('alter table posts add column approved_at text'); db.exec('alter table posts add column approved_by text');
+  db.exec(`update posts set approved_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'), approved_by='до правила' where id in (select post_id from targets where status not in ('draft','cancelled'))`);
+} catch { /* уже есть */ }
+for (const col of ['cover_sec real', 'cover_image text', 'comment text']) { try { db.exec(`alter table posts add column ${col}`); } catch { /* уже есть */ } }
+// Задачи после публикации (комментарий, закрепить, опубликовать черновик TikTok): [{ key, title, done, copy?, note? }].
+try { db.exec('alter table targets add column tasks text'); } catch { /* уже есть */ }
 
 export const all = (sql, ...a) => db.prepare(sql).all(...a);
 export const get = (sql, ...a) => db.prepare(sql).get(...a);

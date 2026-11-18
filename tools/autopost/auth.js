@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { get, run, now } from './db.js';
 
 /*
- * Вход в кабинет — из Нейро-продюсера (src/http/auth.js, туда — из gcanalitics):
+ * Вход в кабинет — по образцу других наших проектов:
  * пароль — scrypt, сессия — случайный токен в httpOnly-cookie, в базе только его хеш.
  * Права у всех одинаковые (Владислав и Ярослав). Заводит людей команда: npm run user -- <логин> "<Имя>".
  */
@@ -46,7 +46,7 @@ export const readCookie = (req) => (req.headers.cookie || '').split(';').map((s)
 export function userOf(req) {
   const token = readCookie(req);
   if (!token) return null;
-  return get(`select u.id, u.login, u.name from sessions s join users u on u.id = s.user_id
+  return get(`select u.id, u.login, u.name, u.readonly from sessions s join users u on u.id = s.user_id
     where s.token_hash = ? and s.expires_at > ?`, sha(token), now()) || null;
 }
 
@@ -62,7 +62,7 @@ export async function changePassword(userId, oldPass, newPass) {
   return { ok: true };
 }
 
-/** Скользящее окно попыток входа по IP — от перебора паролей (из gcanalitics). */
+/** Скользящее окно попыток входа по IP — от перебора паролей. */
 const hits = new Map();
 export function allowLogin(ip, max = 10, windowMs = 10 * 60_000) {
   const t = Date.now();

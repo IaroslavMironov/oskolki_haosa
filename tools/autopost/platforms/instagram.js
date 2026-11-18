@@ -1,5 +1,6 @@
+import { statSync, openAsBlob } from 'node:fs';
 import { call, form } from './http.js';
-import { saveAccount } from '../secrets.js';
+import { saveAccount, setting } from '../secrets.js';
 import { log } from '../db.js';
 import { notSent } from '../publish.js';
 import { publicUrl } from '../pubmedia.js';
@@ -97,21 +98,35 @@ async function ready(host, id, token, progress) {
   throw notSent('Instagram обрабатывает файл дольше 10 минут — попробуйте позже');
 }
 
-const media = async (file, extra = {}) => (isVideo(file) ? { video_url: await publicUrl(file), ...extra } : { image_url: await publicUrl(file), ...extra });
+/*
+ * Видео — прямой загрузкой (upload_type=resumable → rupload.facebook.com), без публичной ссылки:
+ * проверено 17.11.2026 с маркером «единого входа» (graph.facebook.com) — Meta приняла и обработала ролик.
+ * Картинки Meta берёт только по ссылке (image_url) — нужна публичная папка.
+ */
+async function container(host, user, token, file, params) {
+  if (!isVideo(file)) return post(host, `${user}/media`, token, { ...params, image_url: await publicUrl(file) }, { safe: true }).then((r) => r.id);
+  if (host !== 'fb') return post(host, `${user}/media`, token, { ...params, video_url: await publicUrl(file) }, { safe: true }).then((r) => r.id);
+  const c = await post(host, `${user}/media`, token, { ...params, upload_type: 'resumable' }, { safe: true });
+  const { size } = statSync(file);
+  const { body } = await call(c.uri, { method: 'POST', headers: { authorization: `OAuth ${token}`, offset: '0', file_size: String(size) }, body: await openAsBlob(file) }, { safe: true, timeout: 15 * 60_000 });
+  if (!body.success) throw notSent(`Instagram не принял файл: ${body.message || JSON.stringify(body)}`);
+  return c.id;
+}
 
-async function publish({ account: acc, format, files, caption, progress }) {
+async function publish({ account: acc, format, files, caption, progress, cover = {} }) {
   const { token, user } = acc.secret, host = acc.secret.host || 'ig';
-  const container = (params) => post(host, `${user}/media`, token, params, { safe: true }).then((r) => r.id);
-  progress('выкладываю файл для Instagram');
+  const make = (file, params) => container(host, user, token, file, params);
+  progress('загружаю в Instagram');
   let id;
-  if (format === 'reels') id = await container({ media_type: 'REELS', ...(await media(files[0])), caption, share_to_feed: true });
-  else if (format === 'image') id = await container({ ...(await media(files[0])), caption });
-  else if (format === 'story') id = await container({ media_type: 'STORIES', ...(await media(files[0])) });
+  // Обложка — кадр ролика (thumb_offset, мс). Свою картинку (cover_url) Instagram берёт только по публичной ссылке.
+  if (format === 'reels') id = await make(files[0], { media_type: 'REELS', caption, share_to_feed: true, ...(cover.sec != null ? { thumb_offset: Math.round(cover.sec * 1000) } : {}) });
+  else if (format === 'image') id = await make(files[0], { caption });
+  else if (format === 'story') id = await make(files[0], { media_type: 'STORIES' });
   else if (format === 'carousel') {
     const children = [];
-    for (const f of files) children.push(await container({ is_carousel_item: true, ...(await media(f, isVideo(f) ? { media_type: 'VIDEO' } : {})) }));
+    for (const f of files) children.push(await make(f, { is_carousel_item: true, ...(isVideo(f) ? { media_type: 'VIDEO' } : {}) }));
     for (const c of children) await ready(host, c, token, progress);
-    id = await container({ media_type: 'CAROUSEL', children: children.join(','), caption });
+    id = await post(host, `${user}/media`, token, { media_type: 'CAROUSEL', children: children.join(','), caption }, { safe: true }).then((r) => r.id);
   }
   await ready(host, id, token, progress);
   progress('публикую');
@@ -121,15 +136,48 @@ async function publish({ account: acc, format, files, caption, progress }) {
 }
 
 async function stats({ target, account: acc }) {
+  const host = acc.secret.host || 'ig', token = acc.secret.token;
   const metric = target.format === 'story' ? 'views,reach' : 'views,reach,likes,comments,shares,saved';
-  const r = await get(acc.secret.host || 'ig', `${target.remote_id}/insights`, acc.secret.token, { metric });
-  return Object.fromEntries((r.data || []).map((m) => [m.name, m.values?.[0]?.value ?? m.total_value?.value ?? 0]));
+  try {
+    const r = await get(host, `${target.remote_id}/insights`, token, { metric });
+    return Object.fromEntries((r.data || []).map((m) => [m.name, m.values?.[0]?.value ?? m.total_value?.value ?? 0]));
+  } catch {
+    // Нет права instagram_business_manage_insights — просмотров не будет, но лайки и комментарии видны всем.
+    const m = await get(host, target.remote_id, token, { fields: 'like_count,comments_count' });
+    return { likes: m.like_count ?? 0, comments: m.comments_count ?? 0 };
+  }
+}
+
+/* Первый комментарий от имени аккаунта. Закрепить через API нельзя — ручная задача. */
+async function comment({ account: acc, id, text }) {
+  try { await post(acc.secret.host || 'ig', `${id}/comments`, acc.secret.token, { message: text }, { safe: true }); } catch (e) {
+    throw new Error(/permission|\(#10\)|\(#200\)/i.test(e.message) ? 'Instagram не дал оставить комментарий — нужно право instagram_business_manage_comments в приложении Meta и новый маркер' : e.message);
+  }
+}
+
+async function followers(acc) {
+  const r = await get(acc.secret.host || 'ig', acc.secret.user, acc.secret.token, { fields: 'followers_count,media_count' });
+  return { count: r.followers_count ?? 0, posts: r.media_count ?? 0 };
+}
+
+/*
+ * Проверка без публики: квота публикаций (её отдают только при праве публиковать) и, если есть откуда отдать файл,
+ * настоящий Reels-контейнер — Meta забирает и обрабатывает ролик, но media_publish не вызываем: контейнер сгорает за сутки, никто его не видит.
+ */
+async function test({ account: acc, video }) {
+  const host = acc.secret.host || 'ig', { token, user } = acc.secret;
+  const r = await get(host, `${user}/content_publishing_limit`, token, { fields: 'quota_usage,config' });
+  const q = r.data?.[0];
+  const quota = `право публиковать есть (${q?.quota_usage ?? 0} из ${q?.config?.quota_total ?? '?'} за сутки)`;
+  const id = await container(host, user, token, video, { media_type: 'REELS', caption: 'проверка' });
+  await ready(host, id, token, () => {});
+  return `${quota}; проверочный ролик загружен напрямую и обработан (не опубликован, сгорит сам за сутки)`;
 }
 
 export default {
-  title: 'Instagram', color: '#e1306c', publish, stats, maintain, connectToken,
+  title: 'Instagram', color: '#e1306c', publish, stats, maintain, connectToken, test, followers, comment,
   connect: 'token',
-  setup: 'Один раз, ≈20 минут. Из России Instagram API работает только через зарубежный прокси (настраивается на сервере), а файлы Meta забирает по публичной ссылке — это «Публичная папка» в карточке «Сервис».',
+  setup: 'Один раз, ≈20 минут. Reels загружаются напрямую с этого компьютера; фото и карусели Meta берёт только по публичной ссылке — без «Публичной папки» они идут вручную. Из России API Instagram доступен только через VPN/прокси.',
   fields: [['token', 'Маркер доступа (Создать маркер)'], ['igid', 'id аккаунта Instagram (цифры под ником)']],
   steps: [
     'В приложении Instagram переведите аккаунт группы в <b>профессиональный</b>: Настройки → Тип аккаунта → Автор.',
@@ -138,12 +186,12 @@ export default {
     'Нажмите <b>Generate token</b> напротив аккаунта и вставьте ключ ниже. Ключ живёт 60 дней — сервис продлевает его сам.',
   ],
   formats: {
-    reels: { title: 'Reels', auto: true, rules: { media: 'video', vertical: true, minSec: 3, maxSec: 900, maxMB: 300, maxCaption: 2200 },
-      hint: 'Сразу в ленту и вкладку Reels. До 2200 знаков и 30 хэштегов.' },
-    image: { title: 'Фото', auto: true, rules: { media: 'image', jpeg: true, maxMB: 8, maxCaption: 2200 }, hint: 'Только JPEG до 8 МБ, пропорции от 4:5 до 1.91:1.' },
-    carousel: { title: 'Карусель', auto: true, rules: { media: 'images', minImages: 2, maxImages: 20, jpeg: true, maxMB: 8, maxCaption: 2200 },
+    reels: { title: 'Reels', auto: true, comment: 'auto', cover: ['frame'], caption: 'auto', manual: ['Скачать ролик', 'Instagram → ＋ → Reels: ролик, подпись, обложка', 'Опубликовать и вставить сюда ссылку'], rules: { media: 'video', vertical: true, minSec: 3, maxSec: 900, maxMB: 300, maxCaption: 2200 },
+      hint: 'Сразу в ленту и вкладку Reels. До 2200 знаков и 30 хэштегов. Кадр-обложку выбирайте здесь: у ролика, выложенного через Глашатай, Instagram обычно не даёт сменить обложку потом.' },
+    image: { title: 'Фото', auto: true, comment: 'auto', cover: [], caption: 'auto', manual: ['Скачать картинку', 'Instagram → ＋ → Публикация: картинка и подпись', 'Опубликовать и вставить сюда ссылку'], rules: { media: 'image', jpeg: true, maxMB: 8, maxCaption: 2200, needsPublic: true }, hint: 'Только JPEG до 8 МБ, пропорции от 4:5 до 1.91:1.' },
+    carousel: { title: 'Карусель', auto: true, comment: 'auto', cover: [], caption: 'auto', manual: ['Скачать картинки', 'Instagram → ＋ → Публикация → выбрать несколько: картинки по порядку, подпись', 'Опубликовать и вставить сюда ссылку'], rules: { media: 'images', minImages: 2, maxImages: 20, jpeg: true, maxMB: 8, maxCaption: 2200, needsPublic: true },
       hint: 'До 20 картинок; всё обрежется по пропорциям первой.' },
-    story: { title: 'История', auto: true, rules: { media: 'any', maxFiles: 1, maxSec: 60, maxMB: 100 },
+    story: { title: 'История', auto: true, cover: [], caption: 'none', manual: ['Скачать файл', 'Instagram → ＋ → История: файл, при желании стикер-ссылка на oskolkihaosa.ru', 'Опубликовать и отметить здесь'], rules: { media: 'any', maxFiles: 1, maxSec: 60, maxMB: 100 },
       hint: 'Без подписи и стикеров: ссылку-стикер API поставить не даёт — для истории со ссылкой выбирайте «вручную».' },
   },
 };

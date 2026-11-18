@@ -10,6 +10,7 @@
     "dev": "node --watch --env-file-if-exists=.env server.js",
     "demo": "node --env-file-if-exists=.env demo.js",
     "test": "node --test test.js",
-    "user": "node --env-file-if-exists=.env auth.js"
+    "user": "node --env-file-if-exists=.env auth.js",
+    "plan": "node --env-file-if-exists=.env plan.js"
   }
 }

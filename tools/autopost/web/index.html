@@ -16,6 +16,7 @@
   <nav class="tabs">
     <a href="#queue" data-tab="queue">Очередь</a>
     <a href="#accounts" data-tab="accounts">Площадки</a>
+    <a href="#analytics" data-tab="analytics">Аналитика</a>
     <a href="#log" data-tab="log">Журнал</a>
   </nav>
   <div class="top-act">
@@ -29,10 +30,10 @@
 <main>
   <section id="tab-queue" class="tab">
     <div class="filters" id="filters"></div>
-    <div class="rubrics"><span class="muted small">Рубрики:</span> <button class="ghost small" id="rub-prophecy" title="Картинка и подпись из 42 пророчеств сайта, черновиками на 7 дней вперёд в 10:00 — VK и Instagram">🔮 Пророчество дня на неделю</button></div>
     <div id="queue-list"></div>
   </section>
   <section id="tab-accounts" class="tab" hidden><div id="accounts-list" class="accounts"></div></section>
+  <section id="tab-analytics" class="tab" hidden><div id="analytics-view"></div></section>
   <section id="tab-log" class="tab" hidden><ol id="log-list" class="log"></ol></section>
 </main>
 
@@ -41,9 +42,16 @@
     <header class="ed-head"><h2 id="ed-title">Новый пост</h2><button type="button" class="x" data-close aria-label="Закрыть">×</button></header>
     <div class="ed-body">
       <div class="ed-main">
-        <label>Название <small>для себя и для YouTube</small><input name="title" required maxlength="100" placeholder="Тизер «Ворожеи»"></label>
-        <label>Подпись <small>общая для всех площадок, у каждой можно заменить</small><textarea name="caption" rows="6"></textarea>
+        <div id="ed-approve" class="ed-approve" hidden></div>
+        <div id="ed-state" class="ed-state" hidden></div>
+        <div id="ed-tasks" class="ed-tasks" hidden></div>
+        <div id="ed-manual" class="ed-manual" hidden></div>
+        <label>Название <small id="title-hint">для себя</small><input name="title" required maxlength="100" placeholder="Тизер «Ворожеи»"></label>
+        <label>Подпись <small id="cap-hint"></small><textarea name="caption" rows="6"></textarea>
           <span class="count" id="cap-count"></span></label>
+        <label id="comment-box" hidden>Первый комментарий <small id="comment-hint"></small>
+          <textarea name="comment" rows="3" placeholder="Закрепите его под роликом — ссылки в комментариях Shorts, Reels и TikTok не кликаются, поэтому пишем словами, где искать"></textarea>
+          <button type="button" class="link small" id="comment-tpl">вставить шаблон</button></label>
         <div class="row2">
           <label>Релиз <small>метка, по ней фильтр</small><input name="release" placeholder="ворожея"></label>
           <label>Заметка <small>видно только здесь</small><input name="note"></label>
@@ -51,6 +59,19 @@
         <div class="media-head"><b>Файлы</b><span id="media-kind" class="muted"></span>
           <label class="ghost small upload">Загрузить свой<input type="file" id="upload" multiple accept="video/*,image/*" hidden></label></div>
         <div id="picked" class="picked"></div>
+        <div id="cover" class="cover" hidden>
+          <div class="cover-head"><b>Обложка</b><span class="muted small" id="cover-note"></span></div>
+          <div class="cover-row">
+            <div class="cover-shot"><video id="cover-video" muted playsinline preload="auto"></video><img id="cover-img" alt="" hidden></div>
+            <div class="cover-opts">
+              <label class="rad"><input type="radio" name="cover-mode" value="auto"> как решит площадка</label>
+              <label class="rad"><input type="radio" name="cover-mode" value="frame"> кадр из ролика: <b id="cover-sec-label"></b></label>
+              <input type="range" id="cover-sec" min="0" step="0.1" value="0">
+              <label class="rad" id="cover-image-opt"><input type="radio" name="cover-mode" value="image"> своя картинка <span class="muted small" id="cover-image-note"></span></label>
+              <label class="ghost small btn upload" id="cover-upload-btn">Выбрать картинку<input type="file" id="cover-upload" accept="image/jpeg,image/png" hidden></label>
+            </div>
+          </div>
+        </div>
         <details class="library"><summary>Выбрать из готового контента (docs/)</summary><div id="library" class="lib"></div></details>
       </div>
       <div class="ed-side">
@@ -63,6 +84,9 @@
       <button type="button" id="del" class="danger ghost" hidden>Удалить пост</button>
       <span class="spacer"></span>
       <button type="button" data-close class="ghost">Отмена</button>
+      <button type="button" id="ed-preview" class="ghost">👁 Предпросмотр</button>
+      <button type="button" id="ed-copy" class="ghost" data-copy-post hidden>＋ Копия</button>
+      <button type="button" id="ed-unschedule" class="ghost" hidden>Снять с очереди</button>
       <button type="button" id="save" class="ghost">Сохранить черновиком</button>
       <button type="button" id="save-queue" class="primary">Сохранить и в очередь</button>
     </footer>
@@ -71,6 +95,13 @@
 
 <dialog id="pack">
   <div class="pack" id="pack-body"></div>
+</dialog>
+
+<dialog id="pv">
+  <header class="ed-head"><h2>Предпросмотр</h2><button type="button" class="x" data-close aria-label="Закрыть">×</button></header>
+  <div class="pv-tabs" id="pv-tabs"></div>
+  <div class="pv-tabs" id="pv-mode"></div>
+  <div id="pv-body"></div>
 </dialog>
 
 <dialog id="pw">

@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import { statSync, openAsBlob } from 'node:fs';
+import { coverFile } from '../media.js';
 import { call, form, hashtags } from './http.js';
 import { saveAccount, setting, rememberLogin, loginVerifier, forgetLogin } from '../secrets.js';
 import { notSent } from '../publish.js';
@@ -13,7 +14,8 @@ import { notSent } from '../publish.js';
  *  — экран согласия держать «In production» (без проверки): в режиме Testing ключ обновления живёт 7 дней.
  */
 
-const SCOPES = 'https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube.readonly';
+// force-ssl — комментарии от имени канала (и правка видео). Добавлено 17.11.2026: старый вход без него — комментарий уйдёт в ручные задачи.
+const SCOPES = 'https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube.readonly https://www.googleapis.com/auth/youtube.force-ssl';
 const cfg = () => {
   const id = setting('YT_CLIENT_ID'), secret = setting('YT_CLIENT_SECRET');
   if (!id || !secret) throw new Error('сначала вставьте Client ID и Client secret приложения Google («Площадки → YouTube → Настройка»)');
@@ -71,14 +73,14 @@ async function token(acc) {
   }
 }
 
-async function publish({ account: acc, files: [file], caption, title, progress }) {
+async function publish({ account: acc, files: [file], caption, title, progress, private: priv = false, cover = {} }) {
   const access = await token(acc);
   const tags = hashtags(caption).slice(0, 15);
   // Название — до 100 знаков без < >; описание — до 5000 байт.
   const meta = {
     snippet: { title: title.replace(/[<>]/g, '').slice(0, 100), description: caption.replace(/[<>]/g, ''), tags, categoryId: '10', defaultLanguage: 'ru', defaultAudioLanguage: 'ru' },
     // Музыка и ролики группы сделаны нейросетями — честная пометка «изменённый/синтетический контент».
-    status: { privacyStatus: 'public', selfDeclaredMadeForKids: false, containsSyntheticMedia: process.env.YT_SYNTHETIC !== '0' },
+    status: { privacyStatus: priv ? 'private' : 'public', selfDeclaredMadeForKids: false, containsSyntheticMedia: process.env.YT_SYNTHETIC !== '0' },
   };
   const size = statSync(file).size;
   progress('открываю загрузку');
@@ -91,7 +93,31 @@ async function publish({ account: acc, files: [file], caption, title, progress }
   progress(`загружаю ${(size / 1048576).toFixed(1)} МБ`);
   // ponytail: одним запросом, без докачки (308/Range) — ролики по 10–30 МБ; докачку — если связь с Google начнёт рваться.
   const { body: video } = await call(session, { method: 'PUT', body: await openAsBlob(file), headers: { 'content-type': 'video/mp4' } }, { timeout: 15 * 60_000 });
-  return { id: video.id, url: `https://youtube.com/shorts/${video.id}` };
+  const note = cover.image || cover.sec != null ? await setCover(access, video.id, file, cover, progress) : '';
+  return { id: video.id, url: `https://youtube.com/shorts/${video.id}`, note };
+}
+
+/*
+ * Обложка Shorts: thumbnails.set — с 03.11.2026 и для Shorts, но только после обработки ролика.
+ * Ждём обработку до 4 минут; не дождались или YouTube отказал — ролик уже вышел, обложку можно поставить в Studio.
+ * Нужны «расширенные функции» канала (подтверждённый телефон), иначе YouTube отвечает 403.
+ */
+async function setCover(access, id, file, cover, progress) {
+  const img = await coverFile(file, cover);
+  for (let i = 0; i < 24; i++) {
+    const { body } = await call(`https://www.googleapis.com/youtube/v3/videos?part=processingDetails&id=${id}`, { headers: { authorization: `Bearer ${access}` } }, { safe: true });
+    const st = body.items?.[0]?.processingDetails?.processingStatus;
+    if (st === 'succeeded') break;
+    if (st === 'failed' || st === 'terminated') return 'обложка не поставлена: YouTube не обработал ролик';
+    progress(`YouTube обрабатывает ролик перед обложкой… ${i * 10} с`);
+    await new Promise((r) => setTimeout(r, 10_000));
+  }
+  try {
+    await call(`https://www.googleapis.com/upload/youtube/v3/thumbnails/set?videoId=${id}`, { method: 'POST', headers: { authorization: `Bearer ${access}`, 'content-type': 'image/jpeg' }, body: await openAsBlob(img) }, { safe: true });
+    return 'обложка поставлена';
+  } catch (e) {
+    return e.status === 403 ? 'обложка не поставлена: включите «расширенные функции» канала (YouTube Studio → Настройки → Канал → Доступные функции)' : `обложка не поставлена: ${e.message}`;
+  }
 }
 
 async function stats({ target, account: acc }) {
@@ -100,8 +126,30 @@ async function stats({ target, account: acc }) {
   return { views: +s.viewCount || 0, likes: +s.likeCount || 0, comments: +s.commentCount || 0 };
 }
 
+/* Проверка без публики: настоящая загрузка, но приватно — видно только владельцу канала. */
+async function test({ account: acc, video }) {
+  const r = await publish({ account: acc, files: [video], caption: 'Проверка Глашатая — приватное видео, можно удалить.', title: 'Глашатай · проверка (приватное)', progress: () => {}, private: true });
+  return `ролик загрузился приватным (${r.url}) — виден только вам, удалите в YouTube Studio`;
+}
+
+/* Первый комментарий от имени канала. Закрепить через API нельзя — это ручная задача. */
+async function comment({ account: acc, id, text }) {
+  try {
+    await call('https://www.googleapis.com/youtube/v3/commentThreads?part=snippet', { method: 'POST', headers: { authorization: `Bearer ${await token(acc)}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ snippet: { videoId: id, topLevelComment: { snippet: { textOriginal: text } } } }) }, { safe: true });
+  } catch (e) {
+    throw new Error(e.status === 403 ? 'YouTube не дал оставить комментарий — войдите в YouTube в Глашатае заново (нужно право на комментарии)' : e.message);
+  }
+}
+
+async function followers(acc) {
+  const { body } = await call('https://www.googleapis.com/youtube/v3/channels?part=statistics&mine=true', { headers: { authorization: `Bearer ${await token(acc)}` } }, { safe: true });
+  const s = body.items?.[0]?.statistics || {};
+  return { count: +s.subscriberCount || 0, views: +s.viewCount || 0, posts: +s.videoCount || 0 };
+}
+
 export default {
-  title: 'YouTube', color: '#ff3b3b', oauth, publish, stats,
+  title: 'YouTube', color: '#ff3b3b', oauth, publish, stats, test, followers, comment,
   setup: 'Один раз, ≈15 минут, под Google-аккаунтом, которому принадлежит канал группы.',
   app: [['YT_CLIENT_ID', 'Client ID'], ['YT_CLIENT_SECRET', 'Client secret', true]],
   steps: [
@@ -114,7 +162,7 @@ export default {
   ],
   connect: 'oauth',
   formats: {
-    short: { title: 'Shorts', auto: true, rules: { media: 'video', vertical: true, maxSec: 180, maxCaption: 2400, title: true },
+    short: { title: 'Shorts', auto: true, comment: 'auto', cover: ['frame', 'image'], caption: 'auto', manual: ['Скачать ролик', 'YouTube Studio → Создать → Загрузить: название, описание, обложка', 'Опубликовать и вставить сюда ссылку'], rules: { media: 'video', vertical: true, maxSec: 180, maxCaption: 2400, title: true },
       hint: 'Публикуется сразу публично. Название — до 100 знаков, описание — до ~2400 знаков кириллицы (5000 байт), хэштеги из подписи уходят в теги.' },
   },
 };

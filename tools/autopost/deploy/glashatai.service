@@ -7,10 +7,20 @@ After=network-online.target
 User=glashatai
 WorkingDirectory=/opt/glashatai/repo/tools/autopost
 EnvironmentFile=/etc/glashatai.env
+Environment=PATH=/opt/glashatai/bin:/usr/local/bin:/usr/bin:/bin
 ExecStart=/opt/glashatai/node/bin/node --disable-warning=ExperimentalWarning server.js
 Restart=always
 RestartSec=5
+# Соседние проекты на сервере важнее: потолок памяти, пол-ядра, низкий приоритет процессора и диска.
+# Превысит память — система остановит только Глашатая (и перезапустит), соседей не тронет. ffmpeg живёт в той же группе.
+MemoryHigh=350M
 MemoryMax=500M
+CPUQuota=50%
+CPUWeight=30
+Nice=10
+IOWeight=20
+# при нехватке памяти на сервере система остановит Глашатая первым
+OOMScoreAdjust=500
 NoNewPrivileges=true
 ProtectSystem=strict
 ReadWritePaths=/var/lib/glashatai /var/www/glashatai-media

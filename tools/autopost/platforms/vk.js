@@ -21,10 +21,9 @@ export async function vk(method, params, token, opts = { safe: true }) {
   const { body } = await call(`https://api.vk.com/method/${method}`, { method: 'POST', body: form({ ...params, access_token: token, v: V }) }, opts);
   if (body.error) {
     const code = body.error.error_code;
-    const hint = { 5: ' — ключ недействителен, подключите заново', 15: ' — у ключа нет прав на это действие', 27: ' — этот метод не работает с ключом сообщества', 214: ' — публикация запрещена настройками сообщества' }[code] || '';
-    const e = notSent(`VK ${method}: ${body.error.error_msg} (${code})${hint}`);
-    e.auth = code === 5;
-    throw e;
+    // 5 у VK — и «ключ отозван», и «метод только для ключа пользователя»: по одной ошибке ключ не браковать.
+    const hint = { 5: ' — VK не пускает с этим ключом (метод только для ключа пользователя или ключ отозван)', 15: ' — у ключа нет прав на это действие', 27: ' — этот метод не работает с ключом сообщества', 214: ' — публикация запрещена настройками сообщества' }[code] || '';
+    throw notSent(`VK ${method}: ${body.error.error_msg} (${code})${hint}`);
   }
   return body.response;
 }
@@ -37,6 +36,11 @@ async function upload(url, field, file) {
   return body;
 }
 
+/*
+ * Фото на стену (getWallUploadServer) — только ключом пользователя. Проверено 17.11.2026:
+ * ключом сообщества ошибка 27, а фото, загруженное «для сообщений», VK молча выкидывает из поста.
+ * Поэтому с ключом сообщества посты с картинками идут «вручную» (rules.autoNoMedia), здесь — путь для ключа пользователя.
+ */
 async function wallPhoto(gid, token, file) {
   const server = await vk('photos.getWallUploadServer', { group_id: gid }, token);
   const up = await upload(server.upload_url, 'photo', file);
@@ -85,15 +89,23 @@ async function publish({ account: acc, format, files, caption, progress }) {
   throw notSent(`VK: формат «${format}» публикуется только вручную`);
 }
 
-/* Цифры поста: просмотры, лайки, репосты, комментарии. */
-async function stats({ target, account: acc }) {
-  if (target.format !== 'post') return null;
-  const [p] = await vk('wall.getById', { posts: `-${acc.secret.gid}_${target.remote_id}` }, acc.secret.token).then((r) => r.items || r);
-  return p ? { views: p.views?.count ?? 0, likes: p.likes?.count ?? 0, comments: p.comments?.count ?? 0, shares: p.reposts?.count ?? 0 } : null;
+/* Подписчики сообщества. Просмотры постов ключом сообщества VK не отдаёт (wall.getById/stats.get — ошибка 27). */
+async function followers(acc) {
+  const r = await vk('groups.getById', { group_id: acc.secret.gid, fields: 'members_count' }, acc.secret.token);
+  return { count: (r.groups?.[0] || r[0]).members_count };
+}
+
+/* Проверка без публики: отложенный текстовый пост на год вперёд (виден только админам). */
+async function test({ account: acc }) {
+  const { token, gid } = acc.secret;
+  const r = await vk('wall.post', { owner_id: `-${gid}`, from_group: 1, message: 'Глашатай · проверка (удалите)',
+    publish_date: Math.floor(Date.now() / 1000) + 300 * 86400 }, token);
+  // Удалять посты ключом сообщества VK не даёт — проверочный остаётся в «Отложенных» (подписчики его не видят).
+  return `текстовый пост создан отложенным на год вперёд (№${r.post_id}) — подписчики его не видят; удалите его в «Отложенных записях» сообщества`;
 }
 
 export default {
-  title: 'ВКонтакте', color: '#4c8dff', publish, stats, connectToken,
+  title: 'ВКонтакте', color: '#4c8dff', publish, followers, connectToken, test,
   connect: 'token',
   fields: [['token', 'Ключ доступа сообщества'], ['group', 'Ссылка на сообщество (можно пусто)']],
   setup: 'Пять минут, нужен админ сообщества.',
@@ -104,13 +116,13 @@ export default {
     'После подключения опубликуйте первый пост и проверьте, что он вышел: публикацию ключом сообщества VK официально не описывает.',
   ],
   formats: {
-    post: { title: 'Пост', auto: true, rules: { media: 'images', maxImages: 10, needsText: true, maxCaption: 15000, allowEmpty: true },
-      hint: 'Текст и до 10 картинок. Трек из VK Музыки к посту API прикрепить не даёт — релизный пост выкладывайте вручную.' },
-    story: { title: 'История', auto: true, rules: { media: 'any', maxFiles: 1, maxSec: 60, vertical: true },
+    post: { title: 'Пост', auto: true, cover: [], caption: 'auto', manual: ['Скачать картинки', 'VK → сообщество → «Создать запись»: текст и картинки (для релиза — прикрепить трек из VK Музыки)', 'Опубликовать и вставить сюда ссылку на запись'], rules: { media: 'images', maxImages: 10, needsText: true, maxCaption: 15000, allowEmpty: true, autoNoMedia: true },
+      hint: 'Автоматом — только текст: картинки ключом сообщества VK загрузить не даёт (проверено). Пост с картинками — «вручную»: Глашатай напомнит и даст картинку с подписью. Трек из VK Музыки тоже прикрепляется вручную.' },
+    story: { title: 'История', auto: true, cover: [], caption: 'none', manual: ['Скачать файл', 'VK → сообщество → История: файл', 'Опубликовать и отметить здесь'], rules: { media: 'any', maxFiles: 1, maxSec: 60, vertical: true },
       hint: 'Картинка или ролик до 60 с, сразу в ленту историй.' },
-    clip: { title: 'Клип', auto: false, rules: { media: 'video', vertical: true, maxSec: 180 },
+    clip: { title: 'Клип', auto: false, comment: 'manual', cover: [], caption: 'auto', manual: ['Скачать ролик', 'VK → Клипы → Загрузить: ролик, описание, обложку выбрать в VK', 'Опубликовать и вставить сюда ссылку на клип'], rules: { media: 'video', vertical: true, maxSec: 180 },
       hint: 'Клипы VK по API не публикуются (открытого метода нет). Сервис напомнит в срок: скачайте ролик и подпись из «Пакета», выложите в приложении VK и вставьте ссылку.' },
-    video: { title: 'Видео в пост', auto: false, rules: { media: 'video' },
+    video: { title: 'Видео в пост', auto: false, comment: 'manual', cover: [], caption: 'auto', manual: ['Скачать ролик', 'VK → сообщество → Видео → Загрузить: название, описание, обложка; затем прикрепить к записи', 'Опубликовать и вставить сюда ссылку'], rules: { media: 'video' },
       hint: 'Загрузка видео по API — только с особым правом от поддержки VK. Пока — вручную по «Пакету».' },
   },
 };

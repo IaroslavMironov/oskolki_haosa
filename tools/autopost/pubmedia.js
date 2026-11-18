@@ -10,20 +10,28 @@ import { setting } from './secrets.js';
  * Публичная ссылка на файл. Instagram (и фото в TikTok) забирают видео и картинки сами, по https-адресу —
  * загрузки файла напрямую для «входа через Instagram» нет (разведка 17.11.2026).
  *
- * MEDIA_SCP_TARGET — куда скопировать (например gcanalitics:/var/www/oskolki-media/),
+ * MEDIA_SCP_TARGET — куда скопировать (например сервер:/var/www/oskolki-media/),
  * MEDIA_PUBLIC_URL — откуда он виден снаружи (https://oskolkihaosa.ru/m/).
  * Имя файла — хэш содержимого: ссылку не угадать, повторная выкладка того же файла ничего не копирует.
+ *
  * ponytail: старые файлы не чистятся — раз в полгода `find … -mtime +30 -delete` на сервере, если места станет мало.
  */
 
 const exec = promisify(execFile);
 const done = new Map();
 
-export async function publicUrl(file) {
+/** Куда класть и откуда видно — из настроек («Сервис → Публичная папка»). Нет — null: картинки в Instagram идут вручную. */
+export function publicTarget() {
   const base = setting('MEDIA_PUBLIC_URL'), target = setting('MEDIA_SCP_TARGET');
-  if (!base || !target) throw notSent('не настроена публичная папка для файлов — «Площадки → Сервис → Публичная папка»');
+  return base && target ? { base, target } : null;
+}
+
+export async function publicUrl(file) {
+  const pt = publicTarget();
+  if (!pt) throw notSent('Instagram забирает картинки только по ссылке, а публичной папки нет — выложите вручную («Пакет»)');
+  const { base, target } = pt;
   const { mtimeMs, size } = statSync(file);
-  const key = `${file}:${mtimeMs}:${size}`;
+  const key = `${file}:${mtimeMs}:${size}:${base}`;
   if (done.has(key)) return done.get(key);
   const name = crypto.createHash('sha256').update(key).digest('hex').slice(0, 24) + path.extname(file).toLowerCase();
   try {

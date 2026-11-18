@@ -5,13 +5,16 @@ import { pipeline } from 'node:stream/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { db, all, get, run, log, move, now, parsePost, DATA } from './db.js';
-import { abs, listFiles, probe, mime, REPO } from './media.js';
+import { abs, listFiles, probe, mime, REPO, thumbFile } from './media.js';
+import { publicTarget } from './pubmedia.js';
 import { account, dropAccount, setting, saveSetting } from './secrets.js';
 import { login, logout, userOf, changePassword, allowLogin, COOKIE } from './auth.js';
-import { notify } from './notify.js';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import { notify, linkStart, unlink, linkState, pollUpdates, botUsername } from './notify.js';
 import { PLATFORMS } from './platforms/index.js';
-import { planProphecies } from './rubrics.js';
-import { publishDue, recoverInterrupted, collectStats, maintainAccounts, problems, DRY, fmt } from './publish.js';
+import { snapshotFollowers, analyticsState, siteState } from './analytics.js';
+import { publishDue, recoverInterrupted, collectStats, maintainAccounts, problems, DRY, fmt, tasksFor } from './publish.js';
 
 /*
  * «Глашатай» — кабинет автопостинга: очередь, редактор публикаций, площадки, журнал.
@@ -37,8 +40,8 @@ const page = (res, title, text) => { res.writeHead(200, { 'content-type': 'text/
 
 // Настройки, которые вводятся в кабинете: ключи приложений площадок + сервис. [ключ, подпись, секрет?]
 const SERVICE = [
-  ['TG_BOT_TOKEN', 'Ключ бота (от @BotFather)', true], ['TG_CHAT_ID', 'id чата для уведомлений'],
   ['MEDIA_SCP_TARGET', 'Куда класть файлы (сервер:/папка/ или /папка/)'], ['MEDIA_PUBLIC_URL', 'Откуда они видны (https://…/m/)'],
+  ['METRIKA_TOKEN', 'Токен Яндекс Метрики (только чтение статистики)', true],
 ];
 const SETTING_KEYS = new Map([...SERVICE, ...Object.values(PLATFORMS).flatMap((p) => p.app || [])].map(([k, , secret]) => [k, !!secret]));
 const settingView = (k) => { const v = setting(k); return { set: !!v, value: SETTING_KEYS.get(k) ? null : v }; };
@@ -46,7 +49,7 @@ const readBody = async (req) => { let s = ''; for await (const c of req) s += c;
 
 // ---------- состояние для кабинета ----------
 
-function state(me) {
+async function state(me) {
   const posts = all('select * from posts order by id desc').map(parsePost);
   const targets = all('select * from targets order by planned_at, id');
   const byPost = Object.groupBy(targets, (t) => t.post_id);
@@ -55,17 +58,18 @@ function state(me) {
     dry: DRY(),
     now: now(),
     service: { fields: SERVICE.map(([k, l, secret]) => ({ key: k, label: l, secret: !!secret, ...settingView(k) })),
-      proxy: Boolean(process.env.NODE_USE_ENV_PROXY && (process.env.HTTPS_PROXY || process.env.https_proxy)) },
+      proxy: Boolean(process.env.NODE_USE_ENV_PROXY && (process.env.HTTPS_PROXY || process.env.https_proxy)),
+      notify: { bot: await botUsername().catch(() => null), people: linkState().map((u) => ({ ...u, linked: !!u.linked, me: u.id === me.id })) } },
     platforms: Object.fromEntries(Object.entries(PLATFORMS).map(([k, p]) => {
       const a = account(k);
       const redirect = `${BASE}/oauth/${k}/callback`;
       const app = (p.app || []).map(([key, label, secret]) => ({ key, label, secret: !!secret, ...settingView(key) }));
       return [k, { title: p.title, color: p.color, setup: p.setup, redirect, app, appReady: app.every((f) => f.set),
-        steps: (p.steps || []).map((x) => x.replaceAll('{redirect}', redirect)), connected: a?.status === 'connected', status: a?.status || 'off',
+        steps: (p.steps || []).map((x) => x.replaceAll('{redirect}', redirect)), test: !!p.test, connected: a?.status === 'connected', status: a?.status || 'off',
         account: a?.title || null, error: a?.error || null, expires: a?.expires_at || null, connect: p.connect || null, fields: p.fields || null,
-        formats: Object.fromEntries(Object.entries(p.formats).map(([f, d]) => [f, { title: d.title, auto: d.auto, hint: d.hint, rules: d.rules }])) }];
+        formats: Object.fromEntries(Object.entries(p.formats).map(([f, d]) => [f, { title: d.title, auto: d.auto, level: d.level || (d.auto ? 'full' : 'manual'), hint: d.hint, rules: d.rules, cover: d.cover || [], caption: d.caption || 'auto', manual: d.manual || [], comment: d.comment || null }])) }];
     })),
-    posts: posts.map((p) => ({ ...p, targets: (byPost[p.id] || []).map((t) => ({ ...t, stats: t.stats && JSON.parse(t.stats) })) })),
+    posts: posts.map((p) => ({ ...p, targets: (byPost[p.id] || []).map((t) => ({ ...t, stats: t.stats && JSON.parse(t.stats), tasks: t.tasks ? JSON.parse(t.tasks) : [] })) })),
     events: all('select * from events order by id desc limit 200'),
   };
 }
@@ -82,22 +86,40 @@ function cleanTarget(t) {
     caption: t.caption?.trim() ? t.caption : null, title: t.title?.trim() || null };
 }
 
+/*
+ * Правило: один пост — одна площадка (решение 17.11.2026): у каждой своя подпись, время, обложка и статус.
+ * Новый пост с несколькими отмеченными площадками превращается в отдельный пост на каждую — с одинаковым содержимым.
+ */
 function savePost(b, id = null, by = null) {
+  if (!id && (b.targets || []).length > 1) {
+    const ids = b.targets.map((t) => savePost({ ...b, targets: [t] }, null, by).id);
+    return { id: ids[0], ids };
+  }
+  if (id) {
+    const done = get('select status from targets where post_id=? and (status in (?,?,?) or (status=? and remote_id is not null))', id, 'publishing', 'published', 'unknown', 'due');
+    if (done) throw new Error('пост уже на площадке — здесь его не изменить; для нового выпуска сделайте копию');
+    const have = get("select count(*) n from targets where post_id=? and status <> 'cancelled'", id).n - (b.removeTargets || []).length;
+    if (have + (b.targets || []).filter((t) => !t.id).length > 1) throw new Error('у поста одна площадка — для другой сделайте копию («Копия на другую площадку»)');
+  }
   if (!b.title?.trim()) throw new Error('нужно название');
   if (!KINDS.includes(b.kind)) throw new Error('неизвестный вид');
   const media = (b.media || []).map(String);
   media.forEach(abs);
   db.exec('begin');
   try {
-    if (id) run('update posts set title=?, kind=?, caption=?, media=?, release=?, note=? where id=?', b.title.trim(), b.kind, b.caption || '', JSON.stringify(media), b.release || null, b.note || '', id);
-    else id = Number(run('insert into posts (title, kind, caption, media, release, note) values (?,?,?,?,?,?)', b.title.trim(), b.kind, b.caption || '', JSON.stringify(media), b.release || null, b.note || '').lastInsertRowid);
+    const coverSec = Number.isFinite(+b.cover_sec) && b.cover_sec !== null && b.cover_sec !== '' ? +b.cover_sec : null;
+    const coverImage = b.cover_image ? String(b.cover_image) : null;
+    const comment = String(b.comment || '').trim() || null;
+    if (coverImage) abs(coverImage);
+    if (id) run('update posts set title=?, kind=?, caption=?, media=?, release=?, note=?, cover_sec=?, cover_image=?, comment=? where id=?', b.title.trim(), b.kind, b.caption || '', JSON.stringify(media), b.release || null, b.note || '', coverSec, coverImage, comment, id);
+    else id = Number(run('insert into posts (title, kind, caption, media, release, note, cover_sec, cover_image, comment, approved_at, approved_by) values (?,?,?,?,?,?,?,?,?,?,?)', b.title.trim(), b.kind, b.caption || '', JSON.stringify(media), b.release || null, b.note || '', coverSec, coverImage, comment, now(), by).lastInsertRowid);
     // Публикации: новые добавляем, изменённые правим, только пока не ушли в работу.
     for (const raw of b.targets || []) {
       const t = cleanTarget(raw);
       if (raw.id) {
         const old = get('select status from targets where id=? and post_id=?', raw.id, id);
         if (!old) continue;
-        if (!['draft', 'failed'].includes(old.status)) continue;
+        if (!['draft', 'failed', 'scheduled', 'due'].includes(old.status)) continue;
         run(`update targets set ${TARGET_FIELDS.map((f) => `${f}=?`).join(',')}, updated_at=? where id=?`, ...TARGET_FIELDS.map((f) => t[f]), now(), raw.id);
       } else {
         run(`insert into targets (post_id, ${TARGET_FIELDS.join(',')}) values (?,?,?,?,?,?,?)`, id, ...TARGET_FIELDS.map((f) => t[f]));
@@ -132,18 +154,77 @@ const ACTIONS = {
   },
   // «Опубликовано вручную» — для пакетов и для «неясно, вышло ли»: человек проверил площадку и вставил ссылку.
   mark(t, b, by) {
-    if (!move(t.id, ['due', 'unknown', 'scheduled', 'draft', 'failed'], 'published', { url: b.url || null, published_at: now(), error: null })) return { error: 'нельзя' };
+    // Вышло руками: задача «опубликовать» закрыта; комментарий и закрепление — задачами, если у поста есть комментарий.
+    const post = parsePost(get('select * from posts where id=?', t.post_id));
+    const tasks = t.tasks ? JSON.parse(t.tasks) : tasksFor(t, post);
+    for (const x of tasks) if (x.key === 'publish') x.done = true;
+    if (!move(t.id, ['due', 'unknown', 'scheduled', 'draft', 'failed'], 'published', { url: b.url || null, published_at: now(), error: null, tasks: JSON.stringify(tasks) })) return { error: 'нельзя' };
     log(`${PLATFORMS[t.platform].title}: отмечено как опубликованное ${b.url || ''}`, { postId: t.post_id, targetId: t.id, by });
+    return { ok: true };
+  },
+  // Галочка задачи после публикации.
+  task(t, b, by) {
+    const tasks = t.tasks ? JSON.parse(t.tasks) : [];
+    const x = tasks.find((y) => y.key === b.key);
+    if (!x) return { error: 'нет такой задачи' };
+    x.done = !!b.done;
+    run('update targets set tasks=?, updated_at=? where id=?', JSON.stringify(tasks), now(), t.id);
+    log(`${PLATFORMS[t.platform].title}: ${x.done ? '✓' : '↺'} ${x.title}`, { postId: t.post_id, targetId: t.id, by });
+    return { ok: true };
+  },
+  // Ссылка к уже вышедшему (например, TikTok опубликован из приложения, а ссылку вставили позже).
+  // Пост удалили на площадке — убрать из аналитики (и вернуть, если ошиблись).
+  removed(t, b, by) {
+    if (t.status !== 'published') return { error: 'убрать можно только вышедшее' };
+    run('update targets set removed_at=?, updated_at=? where id=?', b.on === false ? null : now(), now(), t.id);
+    log(`${PLATFORMS[t.platform].title}: ${b.on === false ? 'возвращено в аналитику' : 'удалено на площадке — убрано из аналитики'}`, { postId: t.post_id, targetId: t.id, by });
+    return { ok: true };
+  },
+  link(t, b, by) {
+    if (t.status !== 'published') return { error: 'ссылку добавляют к опубликованному' };
+    run('update targets set url=?, updated_at=? where id=?', String(b.url || '').trim() || null, now(), t.id);
+    log(`${PLATFORMS[t.platform].title}: ссылка ${b.url || 'убрана'}`, { postId: t.post_id, targetId: t.id, by });
     return { ok: true };
   },
   // Повторить после «неясно» — только явным решением человека.
   retry: (t) => (move(t.id, ['unknown', 'failed'], 'draft', { error: null }) ? { ok: true } : { error: 'нельзя' }),
 };
 
+// ---------- проверка площадок без публики ----------
+
+/* Проверочные файлы — из картинки «Пророчество дня»: JPEG 1080×1350 и вертикальный ролик 1080×1920, 6 с, с тихим звуком. */
+async function testMedia() {
+  const exec = promisify(execFile);
+  const src = path.join(REPO, 'docs/контент/ворожея/картинки/пророчество-дня-око.jpg');
+  const image = path.join(DATA, 'media', '_проверка.jpg'), video = path.join(DATA, 'media', '_проверка.mp4');
+  if (!existsSync(image)) await exec('ffmpeg', ['-v', 'error', '-y', '-i', src, '-q:v', '3', image]);
+  if (!existsSync(video)) {
+    await exec('ffmpeg', ['-v', 'error', '-y', '-loop', '1', '-i', src, '-f', 'lavfi', '-i', 'anullsrc=r=44100:cl=stereo', '-t', '6',
+      '-vf', 'scale=1080:1350,pad=1080:1920:0:285:color=0x0c0812,format=yuv420p', '-r', '30', '-c:v', 'libx264', '-c:a', 'aac', '-shortest', '-movflags', '+faststart', video]);
+  }
+  return { image, video };
+}
+
+async function testPlatform(k, me) {
+  const p = PLATFORMS[k], acc = account(k);
+  if (!p?.test) return null;
+  if (acc?.status !== 'connected') return { error: `${p.title} не подключён` };
+  try {
+    const text = await p.test({ account: acc, ...(await testMedia()), me: get('select * from users where id=?', me.id) });
+    log(`${p.title}: проверка прошла — ${text}`, { by: me.name });
+    return { ok: true, text };
+  } catch (e) {
+    log(`${p.title}: проверка не прошла — ${e.message}`, { by: me.name, level: 'error' });
+    return { error: e.message };
+  }
+}
+
 // ---------- маршруты ----------
 
 const ROUTES = [
   ['GET', /^\/api\/state$/, (b, m, me) => state(me)],
+  ['GET', /^\/api\/analytics$/, async () => ({ ...analyticsState(), site: await siteState() })],
+  ['POST', /^\/api\/analytics\/refresh$/, async (b, m, me) => { await snapshotFollowers(); await collectStats({ force: true }); await siteState(true); log('цифры обновлены вручную', { by: me.name }); return { ok: true }; }],
   ['POST', /^\/api\/logout$/, () => ({ ok: true, logout: true })],
   ['POST', /^\/api\/password$/, (b, m, me) => changePassword(me.id, b.old, b.new)],
   ['POST', /^\/api\/settings$/, (b, m, me) => {
@@ -189,9 +270,22 @@ const ROUTES = [
     await notify(`🔔 Глашатай на связи. Проверку отправил(а) ${me.name}.`, { strict: true });
     return { ok: true };
   }],
+  ['POST', /^\/api\/test\/(\w+)$/, (b, m, me) => testPlatform(m[1], me)],
+  ['POST', /^\/api\/me\/telegram$/, (b, m, me) => linkStart(me.id)],
+  ['DELETE', /^\/api\/me\/telegram$/, (b, m, me) => { unlink(me.id); log('уведомления в Telegram отключены', { by: me.name }); return { ok: true }; }],
   ['GET', /^\/api\/files$/, async () => ({ files: await Promise.all(listFiles().map(async (f) => ({ path: f, ...(await probe(f)) }))) })],
   ['POST', /^\/api\/posts$/, (b, m, me) => savePost(b, null, me.name)],
   ['PUT', /^\/api\/posts\/(\d+)$/, (b, m, me) => savePost({ ...b, id: +m[1] }, +m[1], me.name)],
+  ['POST', /^\/api\/posts\/(\d+)\/approve$/, (b, m, me) => {
+    const p = get('select title from posts where id=?', +m[1]);
+    if (!p) return null;
+    if (b.on === false) {
+      if (get("select 1 from targets where post_id=? and status not in ('draft','cancelled','failed')", +m[1])) return { error: 'пост уже в очереди или вышел — сначала снимите с очереди' };
+      run('update posts set approved_at=null, approved_by=null where id=?', +m[1]);
+    } else run('update posts set approved_at=?, approved_by=? where id=?', now(), me.name, +m[1]);
+    log(`${b.on === false ? 'утверждение снято' : 'утверждено'}: «${p.title}»`, { postId: +m[1], by: me.name });
+    return { ok: true };
+  }],
   ['DELETE', /^\/api\/posts\/(\d+)$/, (b, m, me) => {
     if (get("select 1 from targets where post_id=? and status in ('publishing','published')", +m[1])) return { error: 'у поста есть опубликованное — удалять нельзя, только отменить остальное' };
     const p = get('select title from posts where id=?', +m[1]);
@@ -215,7 +309,6 @@ const ROUTES = [
     for (const t of b.targets || []) out[`${t.platform}/${t.format}`] = await problems({ ...t, post_id: 0 }, post);
     return out;
   }],
-  ['POST', /^\/api\/rubrics\/prophecy$/, (b) => planProphecies({ days: Math.min(+b.days || 7, 30), hour: /^\d\d:\d\d$/.test(b.hour) ? b.hour : '10:00', port: PORT })],
   ['POST', /^\/api\/run$/, async () => ({ ran: await publishDue() })],
   ['DELETE', /^\/api\/accounts\/(\w+)$/, (b, m, me) => { dropAccount(m[1]); log(`${PLATFORMS[m[1]]?.title}: отключено`, { by: me.name }); return { ok: true }; }],
   ['POST', /^\/api\/accounts\/(\w+)$/, async (b, m, me) => {
@@ -227,11 +320,24 @@ const ROUTES = [
   }],
 ];
 
+function sendFile(req, res, p) {
+  if (!existsSync(p) || statSync(p).isDirectory()) return json(res, 404, { error: 'нет файла' });
+  const { size } = statSync(p);
+  const range = /bytes=(\d+)-(\d*)/.exec(req.headers.range || '');
+  if (range) {
+    const start = +range[1], end = range[2] ? +range[2] : size - 1;
+    res.writeHead(206, { 'content-type': mime(p), 'content-range': `bytes ${start}-${end}/${size}`, 'accept-ranges': 'bytes', 'content-length': end - start + 1 });
+    return createReadStream(p, { start, end }).pipe(res);
+  }
+  res.writeHead(200, { 'content-type': mime(p), 'content-length': size, 'accept-ranges': 'bytes' });
+  return req.method === 'HEAD' ? res.end() : createReadStream(p).pipe(res);
+}
+
 async function handle(req, res) {
   const url = new URL(req.url, 'http://localhost');
   // Защита от чужих страниц в браузере: простая форма не может поставить свой заголовок, а с ним — нужен CORS, которого мы не даём.
-  if (req.method !== 'GET' && req.headers['x-autopost'] !== '1') return json(res, 403, { error: 'нет заголовка x-autopost' });
-  // Вход. Шаблон картинок (/tpl/) открыт: его снимает Chrome без cookie, внутри нет ничего, кроме вёрстки.
+  if (!['GET', 'HEAD'].includes(req.method) && req.headers['x-autopost'] !== '1') return json(res, 403, { error: 'нет заголовка x-autopost' });
+  // Вход.
   if (req.method === 'POST' && url.pathname === '/api/login') {
     const ip = req.headers['x-real-ip'] || req.headers['cf-connecting-ip'] || req.socket.remoteAddress;
     if (!allowLogin(ip)) return json(res, 429, { error: 'Слишком много попыток. Подождите 10 минут.' });
@@ -242,25 +348,22 @@ async function handle(req, res) {
     return json(res, 200, { ok: true }, { 'set-cookie': cookie(s.token, s.maxAge) });
   }
   const me = userOf(req);
-  if (!me && !PUBLIC.has(url.pathname) && !url.pathname.startsWith('/tpl/')) {
+  if (!me && !PUBLIC.has(url.pathname)) {
     if (url.pathname.startsWith('/api/')) return json(res, 401, { error: 'нужно войти' });
     res.writeHead(302, { location: '/login.html' });
     return res.end();
   }
+  // Только просмотр: читать всё можно, менять — только свой пароль (и выйти); ещё можно обновить цифры аналитики.
+  if (me?.readonly && (url.pathname.startsWith('/oauth/') || (!['GET', 'HEAD'].includes(req.method) && !['/api/logout', '/api/password', '/api/analytics/refresh'].includes(url.pathname))))
+    return json(res, 403, { error: 'у вас доступ только на просмотр' });
   if (me && url.pathname === '/login.html') { res.writeHead(302, { location: '/' }); return res.end(); }
   // Файлы контента — для превью в кабинете.
-  if (url.pathname === '/media') {
-    const p = abs(url.searchParams.get('p') || '');
-    if (!existsSync(p)) return json(res, 404, { error: 'нет файла' });
-    const { size } = statSync(p);
-    const range = /bytes=(\d+)-(\d*)/.exec(req.headers.range || '');
-    if (range) {
-      const start = +range[1], end = range[2] ? +range[2] : size - 1;
-      res.writeHead(206, { 'content-type': mime(p), 'content-range': `bytes ${start}-${end}/${size}`, 'accept-ranges': 'bytes', 'content-length': end - start + 1 });
-      return createReadStream(p, { start, end }).pipe(res);
-    }
-    res.writeHead(200, { 'content-type': mime(p), 'content-length': size, 'accept-ranges': 'bytes' });
-    return createReadStream(p).pipe(res);
+  if (url.pathname === '/media') return sendFile(req, res, abs(url.searchParams.get('p') || ''));
+  // Миниатюра ролика — картинкой: 40 видеоплееров в очереди браузер держит плохо, они мигают. Имя кадра меняется с файлом — кешировать можно надолго.
+  if (url.pathname === '/thumb') {
+    const f = await thumbFile(url.searchParams.get('p') || '', Math.max(0, +url.searchParams.get('t') || 1));
+    res.writeHead(200, { 'content-type': 'image/jpeg', 'cache-control': 'private, max-age=86400' });
+    return res.end(await readFile(f));
   }
   // Загрузка своего файла: тело — сам файл, имя в ?name=.
   if (req.method === 'POST' && url.pathname === '/api/upload') {
@@ -312,6 +415,10 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   server.listen(PORT, HOST, () => console.log(`Глашатай: ${BASE}${DRY() ? '  (тестовый режим: на площадки ничего не уходит)' : ''}`));
   // Расписание: публикации раз в 20 с, цифры раз в час (внутри — не чаще 6 ч на пост).
   setInterval(() => publishDue().catch((e) => log(`расписание: ${e.message}`, { level: 'error' })), 20_000);
-  setInterval(() => collectStats().then(maintainAccounts).catch((e) => log(`цифры: ${e.message}`, { level: 'error' })), 3600_000);
+  // Раз в час: цифры публикаций (не чаще 6 ч на пост), снимок подписчиков (за день — последнее значение), продление ключей.
+  const hourly = () => collectStats().then(snapshotFollowers).then(maintainAccounts).catch((e) => log(`цифры: ${e.message}`, { level: 'error' }));
+  setInterval(hourly, 3600_000);
+  hourly();
   publishDue();
+  pollUpdates();
 }

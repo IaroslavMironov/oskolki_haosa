@@ -3,6 +3,7 @@ import { statSync, openAsBlob } from 'node:fs';
 import { call, form } from './http.js';
 import { saveAccount, setting, rememberLogin, loginVerifier, forgetLogin } from '../secrets.js';
 import { notSent } from '../publish.js';
+import { run, all } from '../db.js';
 
 /*
  * TikTok: Content Posting API. Разведка 17.11.2026 (docs/площадки.md):
@@ -15,7 +16,8 @@ import { notSent } from '../publish.js';
  */
 
 const API = 'https://open.tiktokapis.com';
-const SCOPES = 'user.info.basic,video.upload,video.publish,video.list';
+// Черновики + цифры: подписчики (user.info.stats) и ролики аккаунта (video.list). Права должны быть и в приложении TikTok — иначе вход не пустит.
+const SCOPES = process.env.TIKTOK_SCOPES || 'user.info.basic,user.info.stats,video.upload,video.list';
 const cfg = () => {
   const key = setting('TIKTOK_CLIENT_KEY'), secret = setting('TIKTOK_CLIENT_SECRET');
   if (!key || !secret) throw new Error('сначала вставьте Client key и Client secret приложения TikTok («Площадки → TikTok → Настройка»)');
@@ -78,7 +80,7 @@ async function upload(url, file, size, chunk, progress) {
   }
 }
 
-async function publish({ account: acc, format, files: [file], caption, progress }) {
+async function publish({ account: acc, format, files: [file], caption, progress, cover = {} }) {
   const access = await token(acc);
   const size = statSync(file).size;
   const chunk = size <= 64 * 1048576 ? size : 10 * 1048576;
@@ -92,14 +94,15 @@ async function publish({ account: acc, format, files: [file], caption, progress 
     const privacy = creator.privacy_level_options?.includes(want) ? want : creator.privacy_level_options?.[0];
     if (!privacy) throw notSent('TikTok сейчас не даёт публиковать с этого аккаунта');
     init = await api('/v2/post/publish/video/init/', access, { source_info,
-      post_info: { title: caption.slice(0, 2200), privacy_level: privacy, disable_comment: false, disable_duet: false, disable_stitch: false, is_aigc: true, brand_content_toggle: false } });
+      post_info: { title: caption.slice(0, 2200), privacy_level: privacy, ...(cover.sec != null ? { video_cover_timestamp_ms: Math.round(cover.sec * 1000) } : {}), disable_comment: false, disable_duet: false, disable_stitch: false, is_aigc: true, brand_content_toggle: false } });
   }
   // После загрузки TikTok сам доводит публикацию — обрыв дальше уже «неясно» (call без safe).
   await upload(init.upload_url, file, size, chunk, progress);
-  for (let i = 0; i < 60; i++) {
+  // Ждём не больше 2 минут: публикации идут по очереди, долгое ожидание держит остальные. Файл уже у TikTok — дальше он доводит сам.
+  for (let i = 0; i < 12; i++) {
     const s = await api('/v2/post/publish/status/fetch/', access, { publish_id: init.publish_id });
     if (s.status === 'FAILED') throw new Error(`TikTok: ${s.fail_reason || 'публикация не прошла'}`);
-    if (s.status === 'SEND_TO_USER_INBOX') return { id: init.publish_id, note: 'черновик во «Входящих» TikTok — откройте приложение и опубликуйте' };
+    if (s.status === 'SEND_TO_USER_INBOX') return { id: init.publish_id, pending: true, note: 'черновик во «Входящих» TikTok — откройте приложение и опубликуйте' };
     if (s.status === 'PUBLISH_COMPLETE') {
       const pid = s.publicaly_available_post_id?.[0];
       return { id: pid ? String(pid) : init.publish_id, url: pid ? `https://www.tiktok.com/video/${pid}` : null, note: pid ? '' : 'опубликовано приватно (приложение без аудита TikTok)' };
@@ -107,33 +110,67 @@ async function publish({ account: acc, format, files: [file], caption, progress 
     progress(`TikTok обрабатывает… ${i * 10} с`);
     await new Promise((r) => setTimeout(r, 10_000));
   }
-  return { id: init.publish_id, note: 'TikTok ещё обрабатывает — проверьте в приложении' };
+  return { id: init.publish_id, pending: format === 'draft', note: 'файл загружен, TikTok ещё обрабатывает — черновик появится во «Входящих» приложения' };
 }
 
+const FIELDS = 'id,create_time,share_url,view_count,like_count,comment_count,share_count';
+const numbers = (v) => ({ views: v.view_count ?? 0, likes: v.like_count ?? 0, comments: v.comment_count ?? 0, shares: v.share_count ?? 0 });
+
+/*
+ * Черновик публикует человек в приложении — ссылки на ролик у нас нет. Находим его сами в списке роликов аккаунта:
+ * самый ранний из вышедших после загрузки черновика и ещё не привязанных к другой публикации. Нашли — запоминаем id и ссылку.
+ * ponytail: сопоставление по времени; два черновика, опубликованные в обратном порядке, перепутаются — тогда вставить ссылку руками.
+ */
 async function stats({ target, account: acc }) {
-  if (!/^\d+$/.test(target.remote_id)) return null;
-  const d = await api('/v2/video/query/?fields=id,view_count,like_count,comment_count,share_count', await token(acc), { filters: { video_ids: [target.remote_id] } });
-  const v = d.videos?.[0] || {};
-  return { views: v.view_count ?? 0, likes: v.like_count ?? 0, comments: v.comment_count ?? 0, shares: v.share_count ?? 0 };
+  const access = await token(acc);
+  let id = /^\d{10,}$/.test(target.remote_id || '') ? target.remote_id : target.url?.match(/\/video\/(\d+)/)?.[1];
+  if (!id) {
+    const d = await api(`/v2/video/list/?fields=${FIELDS}`, access, { max_count: 20 });
+    const taken = new Set(all("select remote_id from targets where platform='tiktok' and id<>?", target.id).map((r) => r.remote_id));
+    const after = Date.parse(target.published_at) / 1000 - 3600;
+    const v = (d.videos || []).filter((x) => x.create_time >= after && !taken.has(String(x.id))).sort((a, b) => a.create_time - b.create_time)[0];
+    if (!v) return null;
+    run('update targets set remote_id=?, url=coalesce(url, ?) where id=?', String(v.id), v.share_url?.split('?')[0] || null, target.id);
+    return numbers(v);
+  }
+  const d = await api(`/v2/video/query/?fields=${FIELDS}`, access, { filters: { video_ids: [id] } });
+  return numbers(d.videos?.[0] || {});
+}
+
+/* Проверка: настоящий черновик во «Входящие» — публике не виден. Заодно показывает, пускает ли TikTok загрузку с этого аккаунта. */
+async function test({ account: acc, video }) {
+  const r = await publish({ account: acc, format: 'draft', files: [video], caption: '', progress: () => {} });
+  return r.note || 'ролик загрузился черновиком';
+}
+
+/* Подписчики — область user.info.stats: её нужно добавить в приложение TikTok (Sandbox) и войти заново. */
+async function followers(acc) {
+  try {
+    const d = await api('/v2/user/info/?fields=follower_count,likes_count,video_count', await token(acc), null, 'GET');
+    return { count: d.user.follower_count ?? 0, likes: d.user.likes_count ?? 0, posts: d.user.video_count ?? 0 };
+  } catch (e) {
+    if (/scope/.test(e.message)) return { error: 'нужно право user.info.stats: добавьте его в приложении TikTok (Sandbox → Scopes) и войдите заново' };
+    throw e;
+  }
 }
 
 export default {
-  title: 'TikTok', color: '#25f4ee', oauth, publish, stats,
+  title: 'TikTok', color: '#25f4ee', oauth, publish, stats, test, followers,
   connect: 'oauth',
   setup: 'Сначала проверьте в приложении TikTok, что аккаунт группы вообще может загружать видео: аккаунтам из региона РФ TikTok это закрыл.',
   app: [['TIKTOK_CLIENT_KEY', 'Client key'], ['TIKTOK_CLIENT_SECRET', 'Client secret', true]],
   steps: [
     'Войдите на <a href="https://developers.tiktok.com/apps" target="_blank" rel="noopener">developers.tiktok.com</a> и создайте приложение «Глашатай».',
-    'Добавьте продукты <b>Login Kit</b> и <b>Content Posting API</b>, области: user.info.basic, video.upload, video.publish, video.list.',
+    'Добавьте продукты <b>Login Kit</b> и <b>Content Posting API</b> (без Direct Post), области: <b>user.info.basic</b> и <b>video.upload</b>.',
     'Платформа — <b>Desktop</b> (на сервере — Web), Redirect URI: <code>{redirect}</code>.',
-    'Включите <b>Sandbox</b> и добавьте аккаунт группы в «Target users» — так проверка приложения TikTok не нужна (черновики во «Входящие» работают).',
+    'Включите <b>Sandbox</b> и добавьте аккаунт группы в «Target users» — так проверка приложения TikTok не нужна (черновики во «Входящие» работают). Если Sandbox просит описание и демо-видео — заполните (текст и видео подготовлены), отправлять на проверку не нужно.',
     'Скопируйте Client key и Client secret (из Sandbox) в поля ниже → «Сохранить» → «Войти» под аккаунтом группы.',
   ],
   connect: 'oauth',
   formats: {
-    draft: { title: 'Черновик', auto: true, rules: { media: 'video', vertical: true, minSec: 3, maxSec: 600, maxMB: 1024 },
-      hint: 'Ролик придёт во «Входящие» TikTok, подпись и публикация — в приложении одним нажатием. Не больше 5 черновиков в сутки. Подпись скопируйте из кабинета.' },
-    video: { title: 'Публикация', auto: true, rules: { media: 'video', vertical: true, minSec: 3, maxSec: 600, maxMB: 1024, maxCaption: 2200 },
+    draft: { title: 'Черновик', auto: true, level: 'half', comment: 'manual', cover: [], caption: 'copy', manual: ['Открыть TikTok на телефоне → Входящие → Уведомления системы → «Ваше видео из приложения Глашатай готово»', 'Вставить подпись — бот прислал её в Telegram (касание копирует) или «Скопировать подпись» здесь', 'Выбрать обложку в TikTok', 'Опубликовать и вставить сюда ссылку на ролик'], rules: { media: 'video', vertical: true, minSec: 3, maxSec: 600, maxMB: 1024 },
+      hint: 'Ролик придёт во «Входящие» TikTok, подпись и публикация — в приложении одним нажатием. Подпись TikTok к черновику не принимает — её пришлёт бот в Telegram, касание копирует. Не больше 5 черновиков в сутки.' },
+    video: { title: 'Публикация', auto: true, comment: 'manual', cover: ['frame'], caption: 'auto', manual: ['Скачать ролик', 'TikTok → ＋ (или tiktok.com/tiktokstudio/upload): ролик, подпись, обложка', 'Опубликовать и вставить сюда ссылку'], rules: { media: 'video', vertical: true, minSec: 3, maxSec: 600, maxMB: 1024, maxCaption: 2200 },
       hint: 'Без аудита приложения TikTok — только «видно мне» и только с приватного аккаунта.' },
   },
 };

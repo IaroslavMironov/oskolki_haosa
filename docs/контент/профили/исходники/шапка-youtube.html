@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8">
+<!-- Шапка YouTube 2560×1440. Безопасная зона (видна везде, и на телефоне) — 1546×423 по центру. Картинки — из корня сайта. -->
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Unicase:wght@500;600&family=Spectral:wght@400&display=swap" rel="stylesheet">
+<style>
+  html, body { margin: 0; background: #07060a; }
+  .b { position: relative; width: 2560px; height: 1440px; overflow: hidden; }
+  .bg { position: absolute; inset: -40px; background: url(../../../../castle.jpg) center 40% / cover; filter: blur(6px) brightness(.32) saturate(.8); }
+  .p { position: absolute; top: 0; height: 1440px; width: 960px; background-size: cover; background-position: center 15%; }
+  .p.l { left: 0; background-image: url(../../../../ayla.jpg); -webkit-mask: linear-gradient(90deg, #000 35%, transparent 92%); }
+  .p.r { right: 0; background-image: url(../../../../miri.jpg); -webkit-mask: linear-gradient(270deg, #000 35%, transparent 92%); }
+  .aura { position: absolute; inset: 0; background: radial-gradient(ellipse 900px 380px at 50% 50%, rgba(7,6,10,.92), rgba(7,6,10,.55) 55%, transparent 80%),
+    radial-gradient(ellipse 1300px 520px at 50% 52%, rgba(255,45,149,.10), transparent 70%); }
+  .vig { position: absolute; inset: 0; background: radial-gradient(ellipse at 50% 50%, transparent 55%, rgba(0,0,0,.7)); }
+  .safe { position: absolute; left: 507px; top: 508px; width: 1546px; height: 423px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
+  .crown { width: 70px; filter: drop-shadow(0 0 10px rgba(214,163,92,.7)); margin-bottom: 6px; }
+  h1 { margin: 0; font: 500 168px/1 'Cormorant Unicase', serif; letter-spacing: .03em; color: #f3e9dc; text-shadow: 0 4px 30px rgba(0,0,0,.9); white-space: nowrap; }
+  h1 em { font-style: normal; color: #ff2d95; text-shadow: 0 0 22px rgba(255,45,149,.85), 0 0 60px rgba(255,45,149,.45); }
+  p { margin: 18px 0 0; font: 400 34px/1 Spectral, serif; letter-spacing: .42em; text-transform: uppercase; color: #d6a35c; text-shadow: 0 2px 12px #000; }
+</style></head>
+<body><div class="b">
+  <div class="bg"></div><div class="p l"></div><div class="p r"></div><div class="aura"></div><div class="vig"></div>
+  <div class="safe">
+    <svg class="crown" viewBox="0 0 64 40"><path d="M6 34 L3 8 L18 20 L32 2 L46 20 L61 8 L58 34 Z" fill="none" stroke="#d6a35c" stroke-width="3" stroke-linejoin="round"/><circle cx="32" cy="24" r="3" fill="#d6a35c"/></svg>
+    <h1>Осколки <em>хаоса</em></h1>
+    <p>Тёмный паган-фолк-рок</p>
+  </div>
+</div></body></html>

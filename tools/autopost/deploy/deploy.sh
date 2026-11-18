@@ -1,10 +1,10 @@
 #!/bin/sh
-# Выкладка Глашатая на VPS (тот же, где gcanalitics, Нейро МОП и сайт). Запуск с ноутбука из корня репозитория:
+# Выкладка Глашатая на VPS (общий с сайтом и другими проектами). Запуск с ноутбука из корня репозитория, DEPLOY_HOST — ssh-хост сервера:
 #   sh tools/autopost/deploy/deploy.sh            — обновить код и перезапустить службу
 #   sh tools/autopost/deploy/deploy.sh --install  — первый раз: пользователь, папки, Node 24, служба, nginx, https
 # Соседей не трогает: свой пользователь, свой Node, свой порт 3400, свой файл nginx; перед перезагрузкой nginx — nginx -t.
 set -eu
-HOST=gcanalitics
+HOST=${DEPLOY_HOST:?укажите DEPLOY_HOST=<ssh-хост сервера>}
 
 if [ "${1:-}" = "--install" ]; then
   ssh "$HOST" "set -eu
@@ -19,15 +19,20 @@ if [ "${1:-}" = "--install" ]; then
       F=\$(echo \"\$T\" | awk '{print \$2}') && curl -fsSLO https://nodejs.org/dist/latest-v24.x/\$F && echo \"\$T\" | sha256sum -c -
       mkdir -p /opt/glashatai/node && tar -xJf \$F -C /opt/glashatai/node --strip-components=1 && rm \$F
     fi
-    command -v ffprobe >/dev/null || DEBIAN_FRONTEND=noninteractive apt-get install -y -q ffmpeg
+    # свой статический ffmpeg: apt мог бы обновить общие библиотеки и перезапустить соседние службы
+    if [ ! -x /opt/glashatai/bin/ffmpeg ]; then
+      mkdir -p /opt/glashatai/bin && cd /tmp && curl -fsSLO https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz
+      curl -fsSL https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz.md5 | md5sum -c -
+      D=\$(mktemp -d) && tar -xJf ffmpeg-release-amd64-static.tar.xz -C \$D --strip-components=1 && cp \$D/ffmpeg \$D/ffprobe /opt/glashatai/bin/ && rm -rf \$D ffmpeg-release-amd64-static.tar.xz
+    fi
   " < tools/autopost/deploy/glashatai.env.example
   scp -q tools/autopost/deploy/glashatai.service "$HOST":/etc/systemd/system/glashatai.service
   scp -q tools/autopost/deploy/nginx.conf "$HOST":/etc/nginx/sites-available/glashatai
 fi
 
-# Код и контент (docs — библиотека файлов кабинета, data.js — пророчества). Данные (/var/lib/glashatai) не трогаем.
+# Код и контент (docs — библиотека файлов кабинета, data.js — пророчества, арт из корня сайта — его берут посты). Данные (/var/lib/glashatai) не трогаем.
 rsync -az --delete --no-owner --no-group \
-  --include 'data.js' --include 'docs/***' --include 'tools/' --include 'tools/autopost/***' \
+  --include 'data.js' --include '/*.jpg' --include '/*.png' --include '/*.webp' --include 'docs/***' --include 'tools/' --include 'tools/autopost/***' \
   --exclude 'tools/autopost/data/***' --exclude 'tools/autopost/.env' --exclude '.DS_Store' --exclude '*' \
   ./ "$HOST":/opt/glashatai/repo/
 
