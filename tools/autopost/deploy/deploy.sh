@@ -31,10 +31,30 @@ if [ "${1:-}" = "--install" ]; then
 fi
 
 # Код и контент (docs — библиотека файлов кабинета, data.js — пророчества, арт из корня сайта — его берут посты). Данные (/var/lib/glashatai) не трогаем.
+# Тяжёлое (видео, аудио) напрямую не возим: путь «ноутбук → сервер» медленный (~20 КБ/с, 18.11.2026), а GitHub → сервер — десятки МБ/с.
+# Поэтому видео сервер забирает сам с GitHub по последнему отправленному коммиту — см. ниже. --delete их не трогает (исключены из передачи).
 rsync -az --delete --no-owner --no-group \
+  --exclude '*.mp4' --exclude '*.mov' --exclude '*.mp3' --exclude '*.wav' \
   --include 'data.js' --include '/*.jpg' --include '/*.png' --include '/*.webp' --include 'docs/***' --include 'tools/' --include 'tools/autopost/***' \
   --exclude 'tools/autopost/data/***' --exclude 'tools/autopost/.env' --exclude '.DS_Store' --exclude '*' \
   ./ "$HOST":/opt/glashatai/repo/
+
+# Видео и аудио — с GitHub (репозиторий публичный): у каждого файла сверяем сумму, качаем только изменившиеся.
+# Файл, изменённый, но не отправленный в GitHub, сервер взять не может — предупреждаем: сначала «пушь».
+REMOTE=$(git rev-parse origin/dev 2>/dev/null || true)
+CHANGED=$(git status --porcelain -- docs '*.mp4' '*.mp3' 2>/dev/null | grep -E '\.(mp4|mov|mp3|wav)"?$' || true)
+[ -n "$CHANGED" ] && echo "Внимание: эти медиафайлы не отправлены в GitHub — на сервере останутся прежние версии, сначала «пушь»:" && echo "$CHANGED"
+if [ -n "$REMOTE" ]; then
+  git ls-tree -r "$REMOTE" --name-only | grep -E '^(docs/|media/).*\.(mp4|mov|mp3|wav)$|^[^/]+\.(mp4|mp3)$' | while read -r f; do
+    [ -f "$f" ] && printf '%s  %s\n' "$(git show "$REMOTE:$f" | shasum -a 256 | cut -d' ' -f1)" "$f"
+  done | ssh "$HOST" "cd /opt/glashatai/repo && while read -r sum f; do
+      echo \"\$sum  \$f\" | sha256sum -c --quiet - >/dev/null 2>&1 && continue
+      mkdir -p \"\$(dirname \"\$f\")\"
+      enc=\$(python3 -c 'import urllib.parse,sys;print(urllib.parse.quote(sys.argv[1]))' \"\$f\")
+      curl -fsSL -m 300 -o \"\$f.dl\" \"https://raw.githubusercontent.com/IaroslavMironov/oskolki_haosa/$REMOTE/\$enc\" && echo \"\$sum  \$f.dl\" | sha256sum -c --quiet - \\
+        && mv -f \"\$f.dl\" \"\$f\" && echo \"с GitHub: \$f\" || { rm -f \"\$f.dl\"; echo \"не скачалось: \$f\"; }
+    done"
+fi
 
 ssh "$HOST" "set -eu
   chmod -R a+rX /opt/glashatai/repo
