@@ -25,6 +25,31 @@ hero() { # ключ песня файл
     -map "[vo]" -map "[ao]" -t 16 "${ENC[@]}" "$O/$3.mp4"
 }
 
+# Отряд из клипа «Сладкая дрянь» (полный файл IMG_7318.MP4): непрерывный отрывок со СВОИМ звуком — губы совпадают со словами.
+# Кадр клипа — квадрат по центру (сдвиг X), сверху и снизу тот же кадр размыто. Надписи: имя (первая половина), роль и клип (вторая).
+CLIP=${CLIP:-$HOME/Downloads/IMG_7318.MP4}
+heroclip() { # ключ "нач-кон[,нач-кон…]" файл [сдвиг квадрата по X, 0–560]
+  # куски клипа склеиваются по сменам кадра (они в клипе стоят в долю) — каждый со своим звуком; на стыках звука — 30 мс затухания, без щелчков
+  local i=0 fv="" fa="" D=0 p
+  for p in ${2//,/ }; do
+    local st=${p%-*} en=${p#*-}
+    fv+="[0:v]trim=$st:$en,setpts=PTS-STARTPTS,fps=24[v$i];"
+    fa+="[0:a]atrim=$st:$en,asetpts=PTS-STARTPTS,afade=t=in:d=0.03,afade=t=out:st=$(awk "BEGIN{print $en-$st-0.03}"):d=0.03[a$i];"
+    D=$(awk "BEGIN{print $D+$en-$st}"); i=$((i+1))
+  done
+  local cat=""; for ((j=0;j<i;j++)); do cat+="[v$j][a$j]"; done
+  local H; H=$(awk "BEGIN{print $D*0.52}")
+  ffmpeg -hide_banner -loglevel error -y -i "$CLIP" -loop 1 -t $D -i "$OV/$1-ca.png" -loop 1 -t $D -i "$OV/$1-cb.png" -filter_complex "
+    $fv $fa ${cat}concat=n=$i:v=1:a=1[cv][ca];
+    [cv]split[a][b];
+    [a]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=28:2,eq=brightness=-0.25[bg];
+    [b]crop=720:720:${4:-280}:0,scale=1080:1080:flags=lanczos,unsharp=5:5:0.4[fg];
+    [bg][fg]overlay=0:330,setsar=1[v];
+    [1:v]$(ov 0.2 $(awk "BEGIN{print $H-0.3}"))[x];[2:v]$(ov $H $(awk "BEGIN{print $D-0.5}"))[y];
+    [v][x]overlay=0:0[v2];[v2][y]overlay=0:0,noise=alls=3:allf=t[vo];
+    [ca]afade=t=in:d=0.15,afade=t=out:st=$(awk "BEGIN{print $D-0.9}"):d=0.9[ao]" -map "[vo]" -map "[ao]" -t $D "${ENC[@]}" "$O/$3.mp4"
+}
+
 # «Сладкая дрянь»: кусок тизера клипа 44–62 с по центру, фон — тот же кадр размытый
 sladkaya() {
   ffmpeg -hide_banner -loglevel error -y -ss 44 -t 18 -i "$R/media/sladkaya-dryan-teaser.mp4" -loop 1 -t 18 -i "$OV/sd.png" -filter_complex "
@@ -62,6 +87,10 @@ boynya() {
 
 for job in ${JOBS:-hero1 prop1 sd hero2 prop2 hero3 kor hero4 prop3}; do case $job in
   hero1) hero ayla hmelnaya-ten "3-отряд-айла" ;;
+  clip1) heroclip ayla 21.30-23.53,27.10-35.97 "3-отряд-айла" ;;
+  clip2) heroclip miri 49.30-62.13 "7-отряд-мири" ;;
+  clip3) heroclip ilvy 19.37-21.30,39.83-42.93,74.87-80.07 "9-отряд-ильви" ;;
+  clip4) heroclip vulkan 16.53-19.37,62.13-65.53 "11-отряд-вулкан" ;;
   prop1) prophecy пророчество-дня-пламя "4-пророчество-1-пламя" ;;
   sd) sladkaya "5-сладкая-дрянь-клип" ;;
   hero2) hero miri sladkaya-dryan "7-отряд-мири" ;;

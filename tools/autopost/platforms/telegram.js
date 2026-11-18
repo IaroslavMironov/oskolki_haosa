@@ -3,7 +3,23 @@ import path from 'node:path';
 import { call } from './http.js';
 import { saveAccount } from '../secrets.js';
 import { notSent } from '../publish.js';
-import { isVideo, mime, coverFile } from '../media.js';
+import { readFileSync } from 'node:fs';
+import { isVideo, mime, coverFile, REPO } from '../media.js';
+
+/*
+ * Кнопки «слушать» — под каждым постом канала (решение Владислава 18.11: «всегда с кнопками»), адреса в текст не пишем. Ведут на последнюю вышедшую песню сайта (data.js: песня с release,
+ * чья дата уже наступила) — в день нового релиза переключаются сами; вышедшей нет — на страницу артиста. Цветные — Bot API, style.
+ */
+export function listenButtons(now = Date.now()) {
+  const w = {};
+  new Function('window', readFileSync(path.join(REPO, 'data.js'), 'utf8'))(w);
+  const D = Object.values(w)[0];
+  const out = Object.entries(D.releases || {}).filter(([, r]) => Date.parse(r.date) <= now).sort((a, b) => Date.parse(b[1].date) - Date.parse(a[1].date));
+  const song = out.length ? D.songs.find((s) => s.release === out[0][0] && (s.links?.vk || s.links?.yandex)) : null;
+  const L = song?.links || D.links || {};
+  const row = [L.vk && { text: '▶ VK Музыка', url: L.vk, style: 'primary' }, L.yandex && { text: '▶ Яндекс Музыка', url: L.yandex, style: 'success' }].filter(Boolean);
+  return row.length ? { inline_keyboard: [row] } : null;
+}
 
 /*
  * Telegram-канал: бот — админ канала с правом публиковать. Bot API без библиотек.
@@ -49,10 +65,12 @@ export async function connectToken({ token, channel }) {
 async function publish({ account: acc, files, caption, cover = {} }) {
   const { token, chat, username } = acc.secret;
   const link = (m) => (username ? `https://t.me/${username}/${m.message_id}` : null);
-  const text = (t) => tg(token, 'sendMessage', { chat_id: chat, text: t, link_preview_options: { is_disabled: false } });
+  const kb = listenButtons();
+  // кнопки — под сообщением с подписью; у альбома их не бывает, поэтому подпись альбома с кнопками идёт отдельным сообщением
+  const text = (t) => tg(token, 'sendMessage', { chat_id: chat, text: t, link_preview_options: { is_disabled: false }, ...(kb ? { reply_markup: kb } : {}) });
   let first;
   if (files.length >= 2) {
-    const short = caption.length <= CAPTION;
+    const short = caption.length <= CAPTION && !kb;
     const media = files.map((f, i) => ({ type: isVideo(f) ? 'video' : 'photo', media: `attach://f${i}`, ...(i === 0 && short && caption ? { caption } : {}) }));
     [first] = await tg(token, 'sendMediaGroup', { chat_id: chat, media }, files.map((f, i) => [`f${i}`, f]));
     if (!short) await text(caption);
@@ -60,7 +78,7 @@ async function publish({ account: acc, files, caption, cover = {} }) {
     const [f] = files, video = isVideo(f), short = caption.length <= CAPTION;
     // Обложка видео — Bot API 8.3 (sendVideo cover): своя картинка или кадр. В альбомах не ставим.
     const cov = video ? await coverFile(f, cover) : null;
-    first = await tg(token, video ? 'sendVideo' : 'sendPhoto', { chat_id: chat, ...(short && caption ? { caption } : {}), ...(video ? { supports_streaming: true } : {}), ...(cov ? { cover: 'attach://cover' } : {}) },
+    first = await tg(token, video ? 'sendVideo' : 'sendPhoto', { chat_id: chat, ...(short && caption ? { caption } : {}), ...(short && kb ? { reply_markup: kb } : {}), ...(video ? { supports_streaming: true } : {}), ...(cov ? { cover: 'attach://cover' } : {}) },
       [[video ? 'video' : 'photo', f], ...(cov ? [['cover', cov]] : [])]);
     if (!short) await text(caption);
   } else first = await text(caption);

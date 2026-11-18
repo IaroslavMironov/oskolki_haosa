@@ -428,3 +428,4 @@ body.readonly :is(input, textarea, select) { pointer-events: none; }
 .acc .vkid { margin: 8px 0; padding: 10px 12px; border: 1px solid var(--line, #2a2230); border-radius: 10px; }
 .acc .vkid h4 { margin: 0 0 4px; font-size: 14px; }
 body.readonly :is(.an-music, .vkid a) { display: none !important; }
+

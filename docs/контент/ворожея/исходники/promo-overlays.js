@@ -21,6 +21,11 @@ for (const [k, name, epithet, role, song, aura, n] of HERO) {
   L[`${k}-a`] = label(200, `Отряд · ${n}/4`) + grad(1050) + uni(1215, name.toUpperCase(), 170, '#f3e2d6', aura + 'cc') + ital(1405, epithet, 66, aura);
   L[`${k}-b`] = grad(1050) + label(1170, role) + ital(1245, `♪ «${song}»`, 76) + site(1375, 'песня — на oskolkihaosa.ru');
 }
+// Отряд из клипа «Сладкая дрянь»: звучит клип, поэтому подпись — клип, а не песня героя. Кадр клипа — квадрат 1080 на y 330–1410.
+for (const [k, name, epithet, role, , aura, n] of HERO) {
+  L[`${k}-ca`] = label(170, `Отряд · ${n}/4`) + grad(1300) + uni(1440, name.toUpperCase(), 150, '#f3e2d6', aura + 'cc') + ital(1610, epithet, 60, aura);
+  L[`${k}-cb`] = grad(1300) + label(1450, role) + ital(1520, '♪ «Сладкая дрянь» · клип отряда', 62) + site(1640, 'песни отряда — oskolkihaosa.ru');
+}
 L.sd = uni(250, 'МИРИ', 120, '#f3e2d6', '#ff3fb4cc') + ital(400, '«Сладкая дрянь»', 70, '#ff7ac3') + label(1330, 'клип отряда') + site(1395);
 L['kor-a'] = grad(1000) + label(1150, 'Письмо Визиусу · 13 лет спустя') + ital(1225, 'Прячься, предатель —', 92);
 L['kor-b'] = grad(1000) + uni(1185, 'КОРОНА ГОРИТ', 92, '#f3e2d6', '#ff6a1acc') + ital(1330, 'Визиус узнал: племянницы живы', 56) + site(1420, '♪ «Корона горит» · oskolkihaosa.ru');

@@ -219,3 +219,12 @@ test('VK: ручной пост находится на стене по врем
     assert.equal(get('select remote_id from targets where id=?', b).remote_id, 'wall-7_52'); // 51 уже занят
   } finally { globalThis.fetch = real; }
 });
+
+test('Telegram: кнопки «слушать» ведут на последнюю вышедшую песню сайта, до её выхода — на артиста', async () => {
+  const { listenButtons } = await import('./platforms/telegram.js');
+  const urls = (kb) => kb.inline_keyboard[0].map((b) => b.url);
+  assert.deepEqual(urls(listenButtons(Date.parse('2026-11-10T00:00:00+03:00'))), ['https://vk.ru/artist/140998448072937514', 'https://music.yandex.ru/artist/25736211']);
+  const after = listenButtons(Date.parse('2026-11-19T00:00:00+03:00'));
+  assert.deepEqual(urls(after), ['https://vk.ru/audio-2001896757_156896757', 'https://music.yandex.ru/album/44980597/track/158332125']);
+  assert.deepEqual(after.inline_keyboard[0].map((b) => b.style), ['primary', 'success']);
+});
