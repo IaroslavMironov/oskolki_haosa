@@ -1,6 +1,7 @@
 import { db, all, run, log, now } from './db.js';
 import { account, setting } from './secrets.js';
 import { PLATFORMS } from './platforms/index.js';
+import { communityStats } from './platforms/vk.js';
 
 /*
  * Аналитика: снимок подписчиков каждой площадки раз в сутки (рост виден только с того дня, как начали записывать)
@@ -39,12 +40,23 @@ export async function snapshotFollowers() {
 
 /* Чего площадка не отдаёт по публикациям — подпись в разделе, чтобы пустые клетки не путали. */
 const LIMITS = {
-  vk: 'просмотры постов ключом сообщества VK не отдаёт — смотрите «Статистику» сообщества',
+  vk: 'просмотры, лайки, репосты, комментарии постов (посты находятся на стене сами); охват, клипы и статистика сообщества — после подтверждения бизнес-профиля VK ID и «Войти через VK ID»',
   telegram: 'просмотры — с открытой страницы канала; лайков у постов нет',
   instagram: 'лайки и комментарии; просмотры и охват — после права instagram_manage_insights в новом маркере Meta',
   tiktok: 'цифры роликов — после права video.list в приложении TikTok и ссылки на ролик',
   youtube: 'просмотры, лайки, комментарии',
 };
+
+/* Прослушивания — вручную из кабинета артиста (через API их не получить): месяц → слушатели VK Музыки и Яндекса, доход. */
+db.exec('create table if not exists music (month text primary key, vk integer, yandex integer, income integer, by text, at text)');
+export function saveMusic(b, by) {
+  if (!/^\d{4}-\d\d$/.test(b.month || '')) return { error: 'месяц — в виде 2026-11' };
+  const n = (v) => (v === '' || v == null ? null : Math.max(0, Math.round(+String(v).replace(/\s/g, ''))) || 0);
+  run('insert into music (month, vk, yandex, income, by, at) values (?,?,?,?,?,?) on conflict(month) do update set vk=excluded.vk, yandex=excluded.yandex, income=excluded.income, by=excluded.by, at=excluded.at',
+    b.month, n(b.vk), n(b.yandex), n(b.income), by, now());
+  log(`прослушивания за ${b.month} внесены`, { by });
+  return { ok: true };
+}
 
 export function analyticsState() {
   const since = new Date(Date.now() + 3 * 3600_000 - 60 * 864e5).toISOString().slice(0, 10);
@@ -57,6 +69,7 @@ export function analyticsState() {
       error: errors.get(k) || null,
       followers: (series[k] || []).map((r) => ({ day: r.day, count: r.count, ...JSON.parse(r.extra || '{}') })),
     }])),
+    music: all('select month, vk, yandex, income from music order by month'),
     posts: all(`select t.id, t.platform, t.format, t.url, t.published_at, t.stats, t.stats_at, p.id as post_id, p.title, p.release
       from targets t join posts p on p.id=t.post_id where t.status='published' and t.removed_at is null order by t.published_at desc`)
       .map((r) => ({ ...r, stats: r.stats ? JSON.parse(r.stats) : null })),
@@ -119,5 +132,18 @@ export async function siteState(force = false) {
     v = { connected: true, error: e.message };
   }
   siteCache = { at: Date.now(), v };
+  return v;
+}
+
+/* VK-сообщество по дням (ключ администратора через VK ID): держим ответ 10 минут, как сайт. */
+let vkCache = null;
+export async function vkCommunity(force = false) {
+  const acc = account('vk');
+  if (acc?.status !== 'connected') return null;
+  if (!force && vkCache && Date.now() - vkCache.at < 600_000) return vkCache.v;
+  let v;
+  try { const days = await communityStats(acc); v = days ? { connected: true, days } : { connected: false }; }
+  catch (e) { v = { connected: true, error: e.message }; }
+  vkCache = { at: Date.now(), v };
   return v;
 }

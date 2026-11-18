@@ -234,6 +234,10 @@ function renderAccounts() {
       <header><h3>${esc(p.title)}</h3>${state}</header>
       ${p.account ? `<p class="acc-who"><b>${esc(p.account)}</b>${p.expires ? ` <span class="muted small">· ключ до ${new Date(p.expires).toLocaleDateString('ru-RU')}</span>` : ''}</p>` : ''}
       ${p.error ? `<p class="err small">${esc(p.error)}</p>` : ''}
+      ${k === 'vk' ? `<div class="svc vkid"><h4>Статистика VK ${S.vkid.connected ? '<span class="pill green">подключена</span>' : '<span class="pill muted">ещё нет</span>'}</h4>
+        <p class="muted small">Просмотры и охват постов и клипов, статистика сообщества. Ключ сообщества их не отдаёт — нужен вход администратора через VK ID (только чтение).${S.vkid.title ? ` Вошёл: <b>${esc(S.vkid.title)}</b>.` : ''}</p>
+        ${S.vkid.error ? `<p class="err small">${esc(S.vkid.error)}</p>` : ''}
+        <a class="${S.vkid.connected ? 'ghost' : 'primary'} small btn" href="/oauth/vkid/start" target="_blank" rel="opener">${S.vkid.connected ? 'Войти заново' : 'Войти через VK ID'}</a></div>` : ''}
       <div class="acc-act">${connect}${p.connected && p.test ? `<button class="ghost small" data-test="${k}" title="Настоящий путь публикации, но ничего не видно подписчикам">Проверить</button>` : ''}${p.connected || p.status === 'error' ? `<button class="ghost danger small" data-disconnect="${k}">Отключить</button>` : ''}</div>
       ${p.connect === 'oauth' && p.appReady && !p.connected ? `<form class="paste" data-paste="${k}">
         <p class="muted small">Вход откроется в новой вкладке. Если после «Разрешить» там будет страница «не удаётся открыть <b>localhost</b>» — это нормально: скопируйте <b>весь адрес из адресной строки</b> этой вкладки и вставьте сюда.</p>

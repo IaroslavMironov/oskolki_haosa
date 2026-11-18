@@ -191,3 +191,31 @@ test('Метрика: «соцсети» раскладываются по се�
     assert.deepEqual(s.links, [{ name: 'Яндекс Музыка', clicks: 4, listen: true }, { name: 'Сообщество VK', clicks: 4, listen: false }, { name: 'VK Музыка', clicks: 2, listen: true }]);
   } finally { globalThis.fetch = real; }
 });
+
+test('VK: ручной пост находится на стене по времени, цифры и охват — ключом администратора; чужой (уже привязанный) не берётся', async () => {
+  const { saveAccount } = await import('./secrets.js');
+  saveAccount('vk', { title: 'тест', secret: { token: 'community', gid: '7' } });
+  saveAccount('vkid', { title: 'админ', secret: { access: 'admin', until: Date.now() + 3600e3 } });
+  const plan = Date.parse('2026-11-20T16:00:00Z') / 1000;
+  const mk = (planned, published) => Number(run("insert into targets (post_id, platform, format, planned_at, mode, status, published_at) values (?,?,?,?,?,?,?)",
+    Number(run("insert into posts (title, kind, caption, media) values ('vk','image','','[]')").lastInsertRowid), 'vk', 'post', planned, 'manual', 'published', published).lastInsertRowid);
+  const a = mk('2026-11-20T16:00:00.000Z', '2026-11-20T17:00:00.000Z');
+  const real = globalThis.fetch, seen = [];
+  globalThis.fetch = async (url, init) => {
+    const m = String(url).split('/').pop(), p = new URLSearchParams(init.body);
+    seen.push([m, p.get('access_token')]);
+    const R = { 'wall.get': { items: [{ id: 50, date: plan - 9 * 3600 }, { id: 51, date: plan + 600, views: { count: 120 }, likes: { count: 7 }, comments: { count: 2 }, reposts: { count: 1 } }, { id: 52, date: plan + 5 * 3600 }] },
+      'stats.getPostReach': [{ reach_total: 300, reach_subscribers: 40 }] }[m];
+    return { ok: true, status: 200, headers: new Headers({ 'content-type': 'application/json' }), json: async () => ({ response: R }), text: async () => JSON.stringify({ response: R }) };
+  };
+  try {
+    const { PLATFORMS } = await import('./platforms/index.js');
+    const s = await PLATFORMS.vk.stats({ target: get('select * from targets where id=?', a), account: { secret: { token: 'community', gid: '7' } } });
+    assert.deepEqual(s, { views: 120, likes: 7, comments: 2, shares: 1, reach: 300, reach_subscribers: 40 });
+    assert.equal(get('select remote_id from targets where id=?', a).remote_id, 'wall-7_51'); // ближайший к плану, не «за 9 часов до»
+    assert.ok(seen.every(([, t]) => t === 'admin'), 'статистика — только ключом администратора');
+    const b = mk('2026-11-20T16:00:00.000Z', '2026-11-20T22:00:00.000Z'); // отметили «выложил» позже — пост 52 в окне
+    await PLATFORMS.vk.stats({ target: get('select * from targets where id=?', b), account: { secret: { gid: '7' } } });
+    assert.equal(get('select remote_id from targets where id=?', b).remote_id, 'wall-7_52'); // 51 уже занят
+  } finally { globalThis.fetch = real; }
+});

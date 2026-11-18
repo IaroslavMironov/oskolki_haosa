@@ -418,3 +418,13 @@ body.readonly :is(input, textarea, select) { pointer-events: none; }
 .an-site .an-bars + .an-h4 { margin-top: 16px; }
 @media (max-width: 700px) { .an-site { grid-template-columns: 1fr; } }
 .an-act { white-space: nowrap; } .an-act button { margin-left: 8px; opacity: .5; } .an-act button:hover { opacity: 1; }
+
+/* Аналитика: VK-сообщество (числа справа от плитки) и форма прослушиваний */
+.an-kv { display: grid; grid-template-columns: repeat(2, minmax(120px, 1fr)); gap: 12px 24px; align-content: start; }
+.an-kv div { display: flex; flex-direction: column; }
+.an-kv b { font-size: 24px; font-weight: 600; } .an-kv span { color: var(--dim); font-size: 13px; }
+.an-music { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 4px; }
+.an-music input { width: 170px; } .an-music input[name=month] { width: 100px; }
+.acc .vkid { margin: 8px 0; padding: 10px 12px; border: 1px solid var(--line, #2a2230); border-radius: 10px; }
+.acc .vkid h4 { margin: 0 0 4px; font-size: 14px; }
+body.readonly :is(.an-music, .vkid a) { display: none !important; }

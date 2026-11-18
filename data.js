@@ -516,7 +516,7 @@ window.CODEX = {
 Читай письмо` },
 
     // Новая песня: на сайте не видна до даты releases.vorozheya.date. Отрывок — финальный припев (4:05–4:35). lyrics — добавим.
-    { title: "Ворожея", release: "vorozheya", preview: "media/previews/vorozheya.mp3", links: { vk: "", yandex: "" },
+    { title: "Ворожея", release: "vorozheya", preview: "media/previews/vorozheya.mp3", links: { vk: "https://vk.ru/audio-2001896757_156896757", yandex: "https://music.yandex.ru/album/44980597/track/158332125" },
       img: "vorozheya-art.jpg", characters: ["Ворожея", "Айла"], locations: [],
       text: "Айла приходит к Ворожее узнать исход грядущей битвы.",
       lyrics: "" }

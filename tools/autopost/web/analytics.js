@@ -66,8 +66,33 @@ function site(s) {
   </div>`;
 }
 
-const COLS = [['published_at', 'Дата'], ['platform', 'Площадка'], ['title', 'Пост'], ['views', 'Просмотры'], ['likes', 'Лайки'], ['comments', 'Комм.'], ['er', 'Вовлечённость']];
-const val = (p, k) => (k === 'er' ? er(p) : ['views', 'likes', 'comments'].includes(k) ? p.stats?.[k] ?? null : p[k]);
+/* VK-сообщество за 30 дней (ключ администратора): охват по дням, посетители, подписались/отписались. */
+function vkBlock(v) {
+  if (!v?.connected) return '<p class="an-muted">Охват сообщества, посетители и отписки появятся после подтверждения бизнес-профиля в кабинете VK ID и входа «Войти через VK ID» в карточке «ВКонтакте». Цифры постов уже собираются сервисным ключом.</p>';
+  if (v.error) return `<p class="an-muted">VK: ${esc(v.error)}</p>`;
+  const sum = (k) => v.days.reduce((a, d) => a + d[k], 0);
+  return `<div class="an-site"><section class="an-tile"><header><span class="chip" style="--c:#4c8dff">Сообщество VK</span><span class="an-muted">30 дней</span></header>
+    <div class="an-big">${fmt(Math.round(sum('reach') / Math.max(1, v.days.length)))}</div><div class="an-sub">охват в день, в среднем · из них подписчиков ${fmt(Math.round(sum('reach_subscribers') / Math.max(1, v.days.length)))}</div>
+    ${spark(v.days.map((d) => ({ day: d.day, count: d.reach })), 'Охват по дням')}</section>
+    <div class="an-kv"><div><b>${fmt(sum('visitors'))}</b><span>посетителей</span></div><div><b>${fmt(sum('views'))}</b><span>просмотров страницы</span></div>
+      <div><b class="up">+${fmt(sum('subscribed'))}</b><span>подписались</span></div><div><b class="down">−${fmt(sum('unsubscribed'))}</b><span>отписались</span></div></div></div>`;
+}
+
+/* Прослушивания по месяцам — вносит человек из кабинета артиста VK Музыки и Яндекса. */
+function music(rows) {
+  const last = rows.at(-1);
+  const month = new Date(Date.now() + 3 * 3600e3).toISOString().slice(0, 7);
+  return `${rows.length ? `<div class="an-table-wrap"><table class="an-table"><thead><tr><th>Месяц</th><th class="num">VK Музыка</th><th class="num">Яндекс Музыка</th><th class="num">Доход, ₽</th></tr></thead>
+    <tbody>${rows.map((r) => `<tr><td>${esc(r.month)}</td><td class="num">${fmt(r.vk)}</td><td class="num">${fmt(r.yandex)}</td><td class="num">${fmt(r.income)}</td></tr>`).join('')}</tbody></table></div>` : '<p class="an-muted">Пока не вносили.</p>'}
+    <form class="an-music" data-music><input name="month" value="${month}" pattern="\\d{4}-\\d{2}" title="месяц: 2026-11"><input name="vk" inputmode="numeric" placeholder="слушателей VK Музыки" value="${last?.month === month ? last.vk ?? '' : ''}">
+      <input name="yandex" inputmode="numeric" placeholder="слушателей Яндекса" value="${last?.month === month ? last.yandex ?? '' : ''}"><input name="income" inputmode="numeric" placeholder="доход, ₽" value="${last?.month === month ? last.income ?? '' : ''}">
+      <button class="primary small">Сохранить</button></form>
+    <p class="an-muted small">Цифры — из кабинета артиста VK Музыки и Яндекс Музыки или отчёта дистрибьютора: по API площадки их не отдают.</p>`;
+}
+
+const COLS = [['published_at', 'Дата'], ['platform', 'Площадка'], ['title', 'Пост'], ['views', 'Просмотры'], ['reach', 'Охват'], ['likes', 'Лайки'], ['comments', 'Комм.'], ['er', 'Вовлечённость']];
+const NUM = ['views', 'reach', 'likes', 'comments', 'er'];
+const val = (p, k) => (k === 'er' ? er(p) : NUM.includes(k) ? p.stats?.[k] ?? null : p[k]);
 // Вовлечённость = (лайки + комментарии + репосты) / просмотры — только где площадка отдаёт и то и другое (у Telegram лайков нет — не 0%, а «—»).
 const er = (p) => (p.stats?.views && (p.stats.likes != null || p.stats.comments != null) ? ((p.stats.likes || 0) + (p.stats.comments || 0) + (p.stats.shares || 0)) / p.stats.views : null);
 
@@ -78,12 +103,12 @@ function table(posts, platforms) {
     return (x > y ? 1 : x < y ? -1 : 0) * sort.dir;
   });
   if (!list.length) return '<p class="an-muted">Опубликованного пока нет.</p>';
-  return `<div class="an-table-wrap"><table class="an-table"><thead><tr>${COLS.map(([k, t]) => `<th data-sort="${k}" class="${['views', 'likes', 'comments', 'er'].includes(k) ? 'num' : ''}">${t}${sort.key === k ? (sort.dir > 0 ? ' ↑' : ' ↓') : ''}</th>`).join('')}<th></th></tr></thead>
+  return `<div class="an-table-wrap"><table class="an-table"><thead><tr>${COLS.map(([k, t]) => `<th data-sort="${k}" class="${NUM.includes(k) ? 'num' : ''}">${t}${sort.key === k ? (sort.dir > 0 ? ' ↑' : ' ↓') : ''}</th>`).join('')}<th></th></tr></thead>
     <tbody>${list.map((p) => `<tr>
       <td>${p.published_at ? new Date(p.published_at).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', timeZone: 'Europe/Moscow' }) : '—'}</td>
       <td><span class="chip" style="--c:${platforms[p.platform].color}">${esc(platforms[p.platform].title)}<i>${esc(FORMAT[p.format] || p.format)}</i></span></td>
       <td class="an-title"><a href="#" data-edit="${p.post_id}">${esc(p.title)}</a></td>
-      <td class="num">${fmt(p.stats?.views)}</td><td class="num">${fmt(p.stats?.likes)}</td><td class="num">${fmt(p.stats?.comments)}</td>
+      <td class="num">${fmt(p.stats?.views)}</td><td class="num" title="${p.stats?.reach_subscribers != null ? `из них подписчиков: ${fmt(p.stats.reach_subscribers)}` : ''}">${fmt(p.stats?.reach)}</td><td class="num">${fmt(p.stats?.likes)}</td><td class="num">${fmt(p.stats?.comments)}</td>
       <td class="num">${er(p) == null ? '—' : `${(er(p) * 100).toFixed(1)}%`}</td>
       <td class="an-act">${p.url ? `<a href="${esc(p.url)}" target="_blank" rel="noopener" title="Открыть">↗</a>` : ''}<button class="link small" data-removed="${p.id}" title="Удалили на площадке — убрать из аналитики">✕</button></td></tr>`).join('')}</tbody></table></div>`;
 }
@@ -96,6 +121,8 @@ export async function renderAnalytics(el, colors, api) {
     <div class="an-head"><h2>Аналитика</h2><span class="an-muted">${first ? `подписчики записываются с ${dayRu(first)}` : ''}</span>
       <button class="ghost small" id="an-refresh">Обновить цифры</button></div>
     <div class="an-tiles">${Object.entries(P).map(([k, p]) => tile(k, p, p.color)).join('')}</div>
+    <h3 class="an-h">Прослушивания <span class="an-muted">· вносятся вручную раз в месяц</span></h3>${music(A.music)}
+    <h3 class="an-h">ВКонтакте <span class="an-muted">· сообщество</span></h3>${vkBlock(A.vk)}
     <h3 class="an-h">Сайт <span class="an-muted">· Яндекс Метрика</span></h3>${site(A.site)}
     <h3 class="an-h">Средние просмотры на публикацию</h3>${bars(A.posts, P)}
     <h3 class="an-h">Публикации <span class="an-muted">· нажмите на заголовок столбца, чтобы отсортировать</span></h3>${table(A.posts, P)}
@@ -103,6 +130,12 @@ export async function renderAnalytics(el, colors, api) {
   el.querySelector('#an-refresh').onclick = async (e) => {
     e.target.disabled = true; e.target.textContent = 'Собираю…';
     try { await api('POST', '/api/analytics/refresh'); } finally { await renderAnalytics(el, colors, api); }
+  };
+  const mf = el.querySelector('[data-music]');
+  if (mf) mf.onsubmit = async (e) => {
+    e.preventDefault();
+    try { await api('POST', '/api/music', Object.fromEntries(new FormData(mf))); } catch (err) { alert(err.message); }
+    renderAnalytics(el, colors, api);
   };
   for (const b of el.querySelectorAll('[data-removed]')) b.onclick = async () => {
     if (!confirm('Эту публикацию удалили на площадке? Она пропадёт из аналитики (в журнале останется).')) return;

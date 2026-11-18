@@ -13,7 +13,8 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { notify, linkStart, unlink, linkState, pollUpdates, botUsername } from './notify.js';
 import { PLATFORMS } from './platforms/index.js';
-import { snapshotFollowers, analyticsState, siteState } from './analytics.js';
+import { oauth as vkidOauth } from './platforms/vkid.js';
+import { snapshotFollowers, analyticsState, siteState, vkCommunity, saveMusic } from './analytics.js';
 import { publishDue, recoverInterrupted, collectStats, maintainAccounts, problems, DRY, fmt, tasksFor } from './publish.js';
 
 /*
@@ -60,6 +61,7 @@ async function state(me) {
     service: { fields: SERVICE.map(([k, l, secret]) => ({ key: k, label: l, secret: !!secret, ...settingView(k) })),
       proxy: Boolean(process.env.NODE_USE_ENV_PROXY && (process.env.HTTPS_PROXY || process.env.https_proxy)),
       notify: { bot: await botUsername().catch(() => null), people: linkState().map((u) => ({ ...u, linked: !!u.linked, me: u.id === me.id })) } },
+    vkid: (({ status, title, error } = account('vkid') || {}) => ({ connected: status === 'connected', title: title || null, error: error || null }))(),
     platforms: Object.fromEntries(Object.entries(PLATFORMS).map(([k, p]) => {
       const a = account(k);
       const redirect = `${BASE}/oauth/${k}/callback`;
@@ -223,8 +225,9 @@ async function testPlatform(k, me) {
 
 const ROUTES = [
   ['GET', /^\/api\/state$/, (b, m, me) => state(me)],
-  ['GET', /^\/api\/analytics$/, async () => ({ ...analyticsState(), site: await siteState() })],
-  ['POST', /^\/api\/analytics\/refresh$/, async (b, m, me) => { await snapshotFollowers(); await collectStats({ force: true }); await siteState(true); log('цифры обновлены вручную', { by: me.name }); return { ok: true }; }],
+  ['GET', /^\/api\/analytics$/, async () => ({ ...analyticsState(), site: await siteState(), vk: await vkCommunity() })],
+  ['POST', /^\/api\/music$/, (b, m, me) => saveMusic(b, me.name)],
+  ['POST', /^\/api\/analytics\/refresh$/, async (b, m, me) => { await snapshotFollowers(); await collectStats({ force: true }); await siteState(true); await vkCommunity(true); log('цифры обновлены вручную', { by: me.name }); return { ok: true }; }],
   ['POST', /^\/api\/logout$/, () => ({ ok: true, logout: true })],
   ['POST', /^\/api\/password$/, (b, m, me) => changePassword(me.id, b.old, b.new)],
   ['POST', /^\/api\/settings$/, (b, m, me) => {
@@ -374,8 +377,10 @@ async function handle(req, res) {
   }
   // Вход в площадку (OAuth): /oauth/<площадка>/start → площадка → /oauth/<площадка>/callback.
   const oauth = /^\/oauth\/(\w+)\/(start|callback)$/.exec(url.pathname);
-  if (oauth && PLATFORMS[oauth[1]]?.oauth) {
-    const p = PLATFORMS[oauth[1]];
+  // vkid — не площадка, а второй ключ VK (администратора) только для статистики.
+  const OAUTH = { ...PLATFORMS, vkid: { title: 'VK ID (статистика VK)', oauth: vkidOauth } };
+  if (oauth && OAUTH[oauth[1]]?.oauth) {
+    const p = OAUTH[oauth[1]];
     const redirect = `${BASE}/oauth/${oauth[1]}/callback`;
     // Разбор входа: что пришло на адрес возврата (код скрыт). ponytail: убрать, когда вход у всех заработает.
     console.log(new Date().toISOString(), `oauth ${oauth[1]} ${oauth[2]}`, url.search.replace(/code=[^&]+/, 'code=…'),

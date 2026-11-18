@@ -4,6 +4,8 @@ import { call, form } from './http.js';
 import { saveAccount } from '../secrets.js';
 import { notSent } from '../publish.js';
 import { isVideo, mime } from '../media.js';
+import { run, all } from '../db.js';
+import { vkAdmin } from './vkid.js';
 
 /*
  * VK: стена и истории сообщества. Основа — Нейро-продюсер (src/channels/vk.js).
@@ -89,7 +91,61 @@ async function publish({ account: acc, format, files, caption, progress }) {
   throw notSent(`VK: формат «${format}» публикуется только вручную`);
 }
 
-/* Подписчики сообщества. Просмотры постов ключом сообщества VK не отдаёт (wall.getById/stats.get — ошибка 27). */
+/*
+ * Цифры постов и клипов — ключом администратора (VK ID): ключ сообщества их не отдаёт (ошибка 27).
+ * Посты выкладывает человек, ссылку может не вставить — тогда ищем запись сами: ближайшая к плановому времени,
+ * вышедшая не раньше чем за 6 часов до него и ещё не привязанная к другой публикации.
+ * ponytail: сопоставление по времени; два поста одного вида в одни сутки могут перепутаться — тогда вставить ссылку руками.
+ */
+const REF = /(wall|clip|video)(-\d+_\d+)/;
+async function findOwn(target, gid) {
+  const clip = target.format === 'clip' || target.format === 'video';
+  const r = clip ? await vkAdmin('video.get', { owner_id: `-${gid}`, count: 50 }) : await vkAdmin('wall.get', { owner_id: `-${gid}`, count: 50 });
+  if (!r) return null;
+  const taken = new Set(all("select remote_id from targets where platform='vk' and remote_id is not null and id<>?", target.id).map((x) => x.remote_id));
+  const plan = Date.parse(target.planned_at) / 1000, until = Date.parse(target.published_at || new Date().toISOString()) / 1000 + 7200;
+  const kind = clip ? 'clip' : 'wall';
+  const best = (r.items || []).map((x) => ({ x, ref: `${kind}-${gid}_${x.id}` }))
+    .filter(({ x, ref }) => x.date >= plan - 6 * 3600 && x.date <= until && !taken.has(ref) && !x.is_pinned_duplicate)
+    .sort((a, b) => Math.abs(a.x.date - plan) - Math.abs(b.x.date - plan))[0];
+  if (!best) return null;
+  run('update targets set remote_id=?, url=coalesce(url, ?) where id=?', best.ref, `https://vk.com/${best.ref}`, target.id);
+  return best.ref;
+}
+
+async function stats({ target, account: acc }) {
+  const gid = acc.secret.gid;
+  const ref = REF.exec(target.remote_id || '')?.[0] || REF.exec(target.url || '')?.[0] || await findOwn(target, gid);
+  if (!ref) return null;
+  const [, kind, id] = REF.exec(ref);
+  if (kind === 'wall') {
+    // wall.getById сервисному ключу недоступен (ошибка 1051) — берём пост из ленты стены (последние 100 записей)
+    const [owner, pid] = id.split('_');
+    const r = await vkAdmin('wall.get', { owner_id: owner, count: 100 });
+    const p = (r?.items || []).find((x) => String(x.id) === pid);
+    if (!p) return null;
+    const reach = await vkAdmin('stats.getPostReach', { owner_id: `-${gid}`, post_ids: id.split('_')[1] }).catch(() => null);
+    const R = reach?.[0] || {};
+    return { views: p.views?.count ?? null, likes: p.likes?.count ?? 0, comments: p.comments?.count ?? 0, shares: p.reposts?.count ?? 0,
+      reach: R.reach_total ?? null, reach_subscribers: R.reach_subscribers ?? null };
+  }
+  const r = await vkAdmin('video.get', { videos: id });
+  const v = r?.items?.[0];
+  if (!v) return null;
+  return { views: v.views ?? null, likes: v.likes?.count ?? 0, comments: v.comments ?? 0, shares: v.reposts?.count ?? 0 };
+}
+
+/** Сообщество по дням за 30 дней: охват, посетители, подписались/отписались. null — VK ID не подключён. */
+export async function communityStats(acc) {
+  const from = Math.floor(Date.now() / 1000) - 30 * 86400;
+  const r = await vkAdmin('stats.get', { group_id: acc.secret.gid, timestamp_from: from, interval: 'day', extended: 1 });
+  if (!r) return null;
+  return r.map((d) => ({ day: new Date(d.period_from * 1000 + 3 * 3600e3).toISOString().slice(0, 10), reach: d.reach?.reach ?? 0, reach_subscribers: d.reach?.reach_subscribers ?? 0,
+    visitors: d.visitors?.visitors ?? 0, views: d.visitors?.views ?? 0, subscribed: d.activity?.subscribed ?? 0, unsubscribed: d.activity?.unsubscribed ?? 0 }))
+    .sort((a, b) => a.day.localeCompare(b.day));
+}
+
+/* Подписчики сообщества — ключом сообщества. */
 async function followers(acc) {
   const r = await vk('groups.getById', { group_id: acc.secret.gid, fields: 'members_count' }, acc.secret.token);
   return { count: (r.groups?.[0] || r[0]).members_count };
@@ -105,9 +161,11 @@ async function test({ account: acc }) {
 }
 
 export default {
-  title: 'ВКонтакте', color: '#4c8dff', publish, followers, connectToken, test,
+  title: 'ВКонтакте', color: '#4c8dff', publish, followers, connectToken, test, stats,
   connect: 'token',
   fields: [['token', 'Ключ доступа сообщества'], ['group', 'Ссылка на сообщество (можно пусто)']],
+  // цифры постов на стене без входа администратора: id.vk.ru → приложение «Глашатай» → Service token
+  app: [['VK_SERVICE_TOKEN', 'Сервисный ключ приложения VK (цифры постов)', true]],
   setup: 'Пять минут, нужен админ сообщества.',
   steps: [
     'Откройте сообщество → <b>Управление → Работа с API → Ключи доступа → Создать ключ</b>.',
