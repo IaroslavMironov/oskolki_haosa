@@ -82,8 +82,8 @@ function media(item, cls = '', mode = 'auto', sizes = SIZES.full) {
 }
 const vidIo = new IntersectionObserver(es => es.forEach(e => e.isIntersecting ? e.target.play().catch(() => {}) : e.target.pause()), { threshold: .25 });
 const watchVideos = (root = document) => $$('video[data-auto]', root).forEach(v => vidIo.observe(v));
-const LINK_NAMES = { yandex: 'Яндекс Музыка', vk: 'VK Музыка', vkGroup: 'Сообщество VK' };
-const LINK_ICON = { yandex: 'i-yandex', vk: 'i-vk', vkGroup: 'i-vk' };
+const LINK_NAMES = { yandex: 'Яндекс Музыка', vk: 'VK Музыка', vkGroup: 'Сообщество VK', telegram: 'Telegram', youtube: 'YouTube', instagram: 'Instagram', tiktok: 'TikTok' };
+const LINK_ICON = { yandex: 'i-yandex', vk: 'i-vk', vkGroup: 'i-vk', telegram: 'i-tg', youtube: 'i-yt', instagram: 'i-ig', tiktok: 'i-tt' };
 const icon = k => LINK_ICON[k] ? `<svg class="li" aria-hidden="true"><use href="#${LINK_ICON[k]}"/></svg>` : '';
 // keys — какие ссылки показывать (на странице песни сообщество не нужно)
 const linkBtns = (links, cls = 'btn ghost listen', keys = Object.keys(LINK_NAMES)) => keys.filter(k => links?.[k])
@@ -1200,7 +1200,7 @@ if (fresh.length) {
 }
 $('#finale-links').innerHTML = linkBtns(D.links);
 $('#songs-links').innerHTML = linkBtns(D.links, undefined, ['yandex', 'vk']);
-$('#nav-social').innerHTML = Object.keys(LINK_NAMES).filter(k => D.links?.[k] && k !== 'vk')
+$('#nav-social').innerHTML = ['yandex', 'vkGroup'].filter(k => D.links?.[k]) // в шапке — только музыка и дом; все соцсети — в финале
   .map(k => `<a href="${esc(D.links[k])}" target="_blank" rel="noopener" aria-label="${LINK_NAMES[k]}" title="${LINK_NAMES[k]}">${icon(k)}</a>`).join('');
 
 let mRaf = 0;

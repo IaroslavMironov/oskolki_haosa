@@ -12,7 +12,7 @@ import { account, dropAccount, setting, saveSetting } from './secrets.js';
 import { login, logout, userOf, changePassword, allowLogin, COOKIE } from './auth.js';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { notify, linkStart, unlink, linkState, pollUpdates, botUsername } from './notify.js';
+import { notify, linkStart, unlink, linkState, pollUpdates, botUsername, onMarkButton } from './notify.js';
 import { PLATFORMS } from './platforms/index.js';
 import { oauth as vkidOauth } from './platforms/vkid.js';
 import { snapshotFollowers, analyticsState, siteState, vkCommunity, saveMusic } from './analytics.js';
@@ -452,5 +452,12 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   setInterval(() => oracleRound().catch((e) => log(`Ворожея отвечает: ${e.message}`, { level: 'error' })), 30_000);
   hourly();
   publishDue();
+  // «✓ Выложил» из пакета в Telegram — та же отметка, что в кабинете; уже вышедшее — «уже отмечено»
+  onMarkButton((id, by) => {
+    const t = get('select * from targets where id=?', id);
+    if (!t) return { error: 'публикация не найдена' };
+    if (t.status === 'published') return { already: true };
+    return ACTIONS.mark(t, {}, by);
+  });
   pollUpdates();
 }

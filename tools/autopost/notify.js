@@ -1,4 +1,7 @@
 import { randomBytes } from 'node:crypto';
+import { openAsBlob } from 'node:fs';
+import path from 'node:path';
+import { isVideo, mime, probe } from './media.js';
 import { setting, account } from './secrets.js';
 import { db, all, get, run, now } from './db.js';
 
@@ -35,6 +38,43 @@ export async function botUsername() {
   return botName.name;
 }
 
+async function tgFile(method, fields, field, file, timeout = 5 * 60_000) {
+  const body = new FormData();
+  for (const [k, v] of Object.entries(fields)) if (v != null) body.append(k, String(v));
+  body.append(field, await openAsBlob(file, { type: mime(file) }), path.basename(file));
+  const r = await fetch(`https://api.telegram.org/bot${botToken()}/${method}`, { method: 'POST', body, signal: AbortSignal.timeout(timeout) });
+  const j = await r.json();
+  if (!j.ok) throw new Error(j.description || `HTTP ${r.status}`);
+  return j.result;
+}
+
+const chatsAll = () => [...new Set([...all('select tg_chat_id from users where tg_chat_id is not null').map((r) => r.tg_chat_id), setting('TG_CHAT_ID')].filter(Boolean))];
+
+/*
+ * Пакет для ручной публикации (VK, TikTok) прямо в бота: что и куда, файлы, подпись и первый комментарий
+ * отдельными сообщениями — их удобно зажать и скопировать. Видео — как есть (бот не пережимает),
+ * картинки — документом, чтобы не потерять качество. Владислав 18.11: «чтобы все материалы приходили в бот».
+ */
+export async function sendPackage({ head, files = [], caption = '', comment = '', targetId = null }) {
+  // кнопка «✓ Выложил» — под последним сообщением пакета; нажатие отмечает публикацию в Глашатае (как в кабинете)
+  const kb = targetId ? { inline_keyboard: [[{ text: '✓ Выложил', callback_data: `mark:${targetId}`, style: 'success' }]] } : null;
+  const last = comment ? 'comment' : caption ? 'caption' : files.length ? 'file' : 'head';
+  const mk = (part) => (kb && part === last ? { reply_markup: kb } : {});
+  for (const c of chatsAll()) {
+    try {
+      await tg('sendMessage', { chat_id: c, text: head.slice(0, 4000), link_preview_options: { is_disabled: true }, ...mk('head') });
+      for (const [i, f] of files.entries()) {
+        const rm = i === files.length - 1 && kb && last === 'file' ? { reply_markup: JSON.stringify(kb) } : {};
+        // без размеров и длительности Telegram показывает вертикальный ролик криво (квадратом/сплющенным)
+        if (isVideo(f)) { const v = await probe(f); await tgFile('sendVideo', { chat_id: c, supports_streaming: true, width: v.width, height: v.height, duration: v.duration ? Math.round(v.duration) : null, ...rm }, 'video', f); }
+        else await tgFile('sendDocument', { chat_id: c, ...rm }, 'document', f);
+      }
+      if (caption) await tg('sendMessage', { chat_id: c, text: caption.slice(0, 4000), link_preview_options: { is_disabled: true }, ...mk('caption') });
+      if (comment) await tg('sendMessage', { chat_id: c, text: comment.slice(0, 4000), link_preview_options: { is_disabled: true }, ...mk('comment') });
+    } catch (e) { console.warn('telegram (пакет):', e.message); }
+  }
+}
+
 /** Всем, кто подключил уведомления (+ общий чат TG_CHAT_ID, если задан). strict — для кнопки «Проверить»: ошибки наружу. */
 export async function notify(text, { strict = false, chat = null, html = false } = {}) {
   const chats = chat ? [chat] : [...new Set([...all('select tg_chat_id from users where tg_chat_id is not null').map((r) => r.tg_chat_id), setting('TG_CHAT_ID')].filter(Boolean))];
@@ -63,7 +103,22 @@ export const linkState = () => all('select id, name, tg_chat_id is not null as l
 const HELP = 'Это бот «Осколков хаоса»: он публикует посты в канал и присылает уведомления Глашатая. '
   + 'Чтобы получать уведомления: Глашатай → «Площадки» → «Сервис» → «Подключить мой Telegram».';
 
+/* Кнопка «✓ Выложил» из пакета: server.js регистрирует, как отметить (тот же mark, что в кабинете). */
+let markHandler = null;
+export const onMarkButton = (fn) => { markHandler = fn; };
+
+async function handleButton(q) {
+  const user = get('select id, name from users where tg_chat_id=?', String(q.message?.chat?.id || ''));
+  const id = +(/^mark:(\d+)$/.exec(q.data || '') || [])[1];
+  if (!user || !id || !markHandler) return tg('answerCallbackQuery', { callback_query_id: q.id, text: 'Не получилось — отметьте в кабинете' });
+  const r = await markHandler(id, user.name);
+  await tg('answerCallbackQuery', { callback_query_id: q.id, text: r.ok ? 'Отмечено: опубликовано' : r.already ? 'Уже отмечено' : `Не получилось: ${r.error}` });
+  if (r.ok || r.already) await tg('editMessageReplyMarkup', { chat_id: q.message.chat.id, message_id: q.message.message_id,
+    reply_markup: { inline_keyboard: [[{ text: '✓ Выложено', callback_data: 'done' }]] } }).catch(() => {});
+}
+
 export async function handleUpdate(u) {
+  if (u?.callback_query) return handleButton(u.callback_query);
   const msg = u?.message;
   if (!msg?.chat || msg.chat.type !== 'private') return;
   const chatId = String(msg.chat.id), text = String(msg.text || '').trim();
@@ -88,7 +143,7 @@ export async function pollUpdates({ stop = () => false } = {}) {
   while (!stop()) {
     if (!botToken()) { await new Promise((r) => setTimeout(r, 30_000)); continue; }
     try {
-      const updates = await tg('getUpdates', { offset, timeout: 50, allowed_updates: ['message'] }, 70_000);
+      const updates = await tg('getUpdates', { offset, timeout: 50, allowed_updates: ['message', 'callback_query'] }, 70_000);
       for (const u of updates) {
         offset = u.update_id + 1;
         await handleUpdate(u).catch((e) => console.warn('бот: не обработал сообщение', e.message));

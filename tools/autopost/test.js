@@ -245,3 +245,19 @@ test('Instagram Reels без обложки в очередь не встаёт'
   run('update posts set cover_sec=1 where id=?', pid);
   assert.ok(!(await problems(t)).some((x) => /выберите обложку/.test(x)));
 });
+
+test('ручные (VK, TikTok): в срок — пакет в бота один раз; из очереди → «ждёт вас», черновик VK остаётся черновиком', async () => {
+  const { remindManual } = await import('./publish.js');
+  const mk = (status, at, format = 'post', platform = 'vk') => {
+    const pid = Number(run("insert into posts (title, kind, caption, media) values ('ручной','text','подпись','[]')").lastInsertRowid);
+    return Number(run('insert into targets (post_id, platform, format, planned_at, mode, status) values (?,?,?,?,?,?)', pid, platform, format, at, 'manual', status).lastInsertRowid);
+  };
+  const ago = (h) => new Date(Date.now() - h * 3600e3).toISOString();
+  const a = mk('draft', ago(0.5)), b = mk('scheduled', ago(0.2), 'draft', 'tiktok'), old = mk('draft', ago(30)), later = mk('draft', new Date(Date.now() + 3600e3).toISOString());
+  await remindManual();
+  const T = (id) => get('select status, reminded_at from targets where id=?', id);
+  assert.equal(T(a).status, 'draft'); assert.ok(T(a).reminded_at);
+  assert.equal(T(b).status, 'due'); assert.ok(T(b).reminded_at);
+  assert.ok(T(old).reminded_at, 'старое помечено, но не шлётся');
+  assert.equal(T(later).reminded_at, null, 'будущее не трогаем');
+});

@@ -1,8 +1,8 @@
-import { all, get, move, log, now, parsePost, run } from './db.js';
+import { db, all, get, move, log, now, parsePost, run } from './db.js';
 import { account, setAccountStatus, setting } from './secrets.js';
 import { abs, check } from './media.js';
 import { PLATFORMS } from './platforms/index.js';
-import { notify } from './notify.js';
+import { notify, sendPackage } from './notify.js';
 import { publicTarget } from './pubmedia.js';
 
 /*
@@ -81,13 +81,7 @@ async function publishOne(t) {
     notify(`⏰ Пропущено время: «${post.title}» в ${PLATFORMS[t.platform].title} — назначьте новое в кабинете`);
     return;
   }
-  if (t.mode === 'manual') {
-    if (move(t.id, ['scheduled'], 'due')) {
-      log(`пора выложить вручную: ${PLATFORMS[t.platform].title}`, ctx);
-      notify(`✋ Пора выложить вручную: «${post.title}» → ${PLATFORMS[t.platform].title} · ${fmt(t).title}\n\n${captionOf(t, post)}`);
-    }
-    return;
-  }
+  if (t.mode === 'manual') return; // ручные — в remindManual: пакет в бота
   // Повтор после «точно не отправилось» — с паузой 1, 4, 16 минут.
   if (t.attempts > 0 && Date.now() - Date.parse(t.updated_at) < 4 ** (t.attempts - 1) * 60_000) return;
   const issues = await problems(t, post);
@@ -147,8 +141,33 @@ export async function publishDue() {
   try {
     const due = all("select * from targets where status='scheduled' and planned_at <= ? order by planned_at, id limit 20", now());
     for (const t of due) await publishOne(t);
+    await remindManual();
     return due.length;
   } finally { busy = false; }
+}
+
+/*
+ * Ручные публикации (VK, TikTok): в назначенное время — пакет в бота, один раз (reminded_at). VK-черновики в очередь
+ * не ставят, поэтому смотрим и черновики. Прошло больше STALE_HOURS — не шлём (не заваливаем чат старьём).
+ */
+try { db.exec('alter table targets add column reminded_at text'); } catch { /* уже есть */ }
+export async function remindManual() {
+  const rows = all(`select * from targets where mode='manual' and status in ('draft','scheduled','due') and reminded_at is null and planned_at <= ?
+    order by planned_at limit 10`, now());
+  for (const t of rows) {
+    run('update targets set reminded_at=? where id=?', now(), t.id); // сначала метка — пакет не уйдёт дважды
+    const post = parsePost(get('select * from posts where id=?', t.post_id));
+    if (Date.now() - Date.parse(t.planned_at) > STALE_HOURS * 3600_000 || /НУЖЕН ФАЙЛ/.test(post.note || '')) continue;
+    if (t.status === 'scheduled') move(t.id, ['scheduled'], 'due');
+    const p = PLATFORMS[t.platform], f = fmt(t);
+    log(`пора выложить вручную: ${p.title} — пакет в Telegram`, { targetId: t.id, postId: post.id });
+    const when = new Date(t.planned_at).toLocaleString('ru-RU', { timeZone: 'Europe/Moscow', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+    // только что и куда — дальше файл, подпись и комментарий, чтобы сразу копировать (Владислав 18.11: без инструкций)
+    await sendPackage({
+      head: `✋ ${post.title.replace(/^Ролик:\s*/, '')} · ${p.title}, ${f.title} · ${when}`,
+      files: post.media.map(abs), caption: f.caption === 'none' ? '' : captionOf(t, post), comment: f.comment ? post.comment || '' : '', targetId: t.id,
+    });
+  }
 }
 
 /** Процесс упал посреди отправки: такие публикации нельзя повторять вслепую. Вызывается при старте. */

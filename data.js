@@ -27,7 +27,11 @@ window.CODEX = {
   links: {
     yandex: "https://music.yandex.ru/artist/25736211",
     vk: "https://vk.ru/artist/140998448072937514",
-    vkGroup: "https://vk.ru/oskolki_haosa"
+    vkGroup: "https://vk.ru/oskolki_haosa",
+    telegram: "https://t.me/oskolkihaosa",
+    youtube: "https://www.youtube.com/@осколки_хаоса",
+    instagram: "https://www.instagram.com/oskolkihaosa",
+    tiktok: "https://www.tiktok.com/@oskolki_chaosa"
   },
 
   // ── Выход новых песен ──
