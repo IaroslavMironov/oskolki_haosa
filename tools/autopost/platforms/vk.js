@@ -174,13 +174,13 @@ export default {
     'После подключения опубликуйте первый пост и проверьте, что он вышел: публикацию ключом сообщества VK официально не описывает.',
   ],
   formats: {
-    post: { title: 'Пост', auto: true, cover: [], caption: 'auto', manual: ['Скачать картинки', 'VK → сообщество → «Создать запись»: текст и картинки (для релиза — прикрепить трек из VK Музыки)', 'Опубликовать и вставить сюда ссылку на запись'], rules: { media: 'images', maxImages: 10, needsText: true, maxCaption: 15000, allowEmpty: true, autoNoMedia: true },
+    post: { title: 'Пост', auto: true, cover: [], caption: 'auto', manual: ['Скачать картинки', 'VK → сообщество → «Создать запись»: текст и картинки (для релиза — прикрепить трек из VK Музыки)', 'Опубликовать и нажать «✓ Выложил»'], rules: { media: 'images', maxImages: 10, needsText: true, maxCaption: 15000, allowEmpty: true, autoNoMedia: true },
       hint: 'Автоматом — только текст: картинки ключом сообщества VK загрузить не даёт (проверено). Пост с картинками — «вручную»: Глашатай напомнит и даст картинку с подписью. Трек из VK Музыки тоже прикрепляется вручную.' },
-    story: { title: 'История', auto: true, cover: [], caption: 'none', manual: ['Скачать файл', 'VK → сообщество → История: файл', 'Опубликовать и отметить здесь'], rules: { media: 'any', maxFiles: 1, maxSec: 60, vertical: true },
+    story: { title: 'История', auto: true, cover: [], caption: 'none', manual: ['Скачать файл', 'VK → сообщество → История: файл', 'Опубликовать и нажать «✓ Выложил»'], rules: { media: 'any', maxFiles: 1, maxSec: 60, vertical: true },
       hint: 'Картинка или ролик до 60 с, сразу в ленту историй.' },
-    clip: { title: 'Клип', auto: false, comment: 'manual', cover: [], caption: 'auto', manual: ['Скачать ролик', 'VK → Клипы → Загрузить: ролик, описание, обложку выбрать в VK', 'Опубликовать и вставить сюда ссылку на клип'], rules: { media: 'video', vertical: true, maxSec: 180 },
+    clip: { title: 'Клип', auto: false, comment: 'manual', cover: [], caption: 'auto', manual: ['Скачать ролик', 'VK → Клипы → Загрузить: ролик, описание, обложку выбрать в VK', 'Опубликовать и нажать «✓ Выложил»'], rules: { media: 'video', vertical: true, maxSec: 180 },
       hint: 'Клипы VK по API не публикуются (открытого метода нет). Сервис напомнит в срок: скачайте ролик и подпись из «Пакета», выложите в приложении VK и вставьте ссылку.' },
-    video: { title: 'Видео в пост', auto: false, comment: 'manual', cover: [], caption: 'auto', manual: ['Скачать ролик', 'VK → сообщество → Видео → Загрузить: название, описание, обложка; затем прикрепить к записи', 'Опубликовать и вставить сюда ссылку'], rules: { media: 'video' },
+    video: { title: 'Видео в пост', auto: false, comment: 'manual', cover: [], caption: 'auto', manual: ['Скачать ролик', 'VK → сообщество → Видео → Загрузить: название, описание, обложка; затем прикрепить к записи', 'Опубликовать и нажать «✓ Выложил»'], rules: { media: 'video' },
       hint: 'Загрузка видео по API — только с особым правом от поддержки VK. Пока — вручную по «Пакету».' },
   },
 };

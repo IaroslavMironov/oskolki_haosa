@@ -14,7 +14,7 @@ const TAGS_SHORT = '#осколкихаоса #паганфолк #darkfolk #ф�
 const daily = (yt, ig, tt) => ({
   'youtube/short': { title: yt },
   'instagram/reels': { caption: ig },
-  'tiktok/draft': { at: '18:40', caption: tt },
+  'tiktok/draft': { at: '10:00', caption: tt }, // утром: выкладывать вручную вечером неудобно (Владислав 20.11)
 });
 
 // «Ворожея отвечает» (18.11): на гадательных роликах — призыв выбрать карту в подписи и первом комментарии, ответчик на YouTube и Instagram

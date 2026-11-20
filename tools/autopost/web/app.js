@@ -93,7 +93,7 @@ function actions(t) {
     case 'failed': return b('schedule', 'Ещё раз в очередь', 'primary') + b('pack', 'Пакет') + b('cancel', 'Отменить');
     case 'scheduled': return mine ? done + b('pack', 'Пакет') + b('unschedule', 'Снять с очереди') : b('unschedule', 'Снять с очереди');
     case 'due': return done + b('pack', 'Пакет') + b('cancel', 'Отменить');
-    case 'unknown': return b('mark', 'Вышло — вставить ссылку', 'primary') + b('retry', 'Не вышло — в черновик');
+    case 'unknown': return b('mark', 'Вышло', 'primary') + b('retry', 'Не вышло — в черновик');
     case 'published': return t.url ? `<a class="ghost small btn" href="${esc(t.url)}" target="_blank" rel="noopener">Открыть ↗</a>` : `<button class="ghost small" data-edit="${t.post_id}">＋ Ссылка</button>`;
     default: return '';
   }
@@ -167,10 +167,8 @@ async function act(name, id) {
   if (name === 'pack') return openPack(t);
   if (name === 'approve') { await api('POST', `/api/posts/${t.post_id}/approve`, {}); toast('Утверждено — теперь можно в очередь'); return load(); }
   if (name === 'preview') return openPreview([{ platform: t.platform, format: t.format, caption: t.caption ?? t.post.caption, title: t.title || t.post.title, files: t.post.media, planned: t.planned_at }], 0);
-  if (name === 'mark') {
-    const url = prompt(`${S.platforms[t.platform].title}: ссылка на вышедший пост (можно оставить пустым)`, '');
-    if (url === null) return;
-    await api('POST', `/api/targets/${id}/mark`, { url: url.trim() });
+  if (name === 'mark') { // без ссылки на пост — вставлять её долго (Владислав 20.11)
+    await api('POST', `/api/targets/${id}/mark`, {});
     toast('Отмечено: опубликовано');
   } else if (name === 'cancel' && !confirm('Отменить эту публикацию?')) return;
   else await api('POST', `/api/targets/${id}/${name}`, {});
@@ -189,8 +187,7 @@ function openPack(t) {
     ${caption ? `<div class="pack-cap"><pre>${esc(caption)}</pre><button class="ghost small" data-copy>Скопировать подпись</button></div>` : ''}
     ${t.title ? `<p><b>Название:</b> ${esc(t.title)}</p>` : ''}
     <div class="pack-files">${p.media.map((m) => `<a class="ghost small btn" href="${media(m)}" download="${esc(base(m))}">⬇ ${esc(base(m))}</a>`).join('')}</div>
-    ${t.status === 'published' ? '' : `<label>Ссылка на вышедший пост<input id="pack-url" placeholder="https://…"></label>
-    <footer class="ed-foot"><span class="spacer"></span><button class="primary" data-mark="${t.id}">Опубликовано</button></footer>`}`;
+    ${t.status === 'published' ? '' : `<footer class="ed-foot"><span class="spacer"></span><button class="primary" data-mark="${t.id}">Опубликовано</button></footer>`}`;
   $('#pack').showModal();
 }
 
@@ -506,11 +503,7 @@ function renderManual() {
   if (!t) { box.hidden = true; return; }
   const p = S.platforms[t.platform], f = p.formats[t.format], post = S.posts.find((x) => x.id === E.id);
   const level = levelOf(t);
-  if (t.status === 'published') {
-    box.hidden = !!t.url;
-    box.innerHTML = t.url ? '' : `<b>Ссылка на вышедший пост</b><div class="tok"><input id="man-url" placeholder="https://…"><button type="button" class="primary small" data-man="link">Добавить ссылку</button></div>`;
-    return;
-  }
+  if (t.status === 'published') { box.hidden = true; return; }
   const need = level !== 'full' || ['failed', 'unknown'].includes(t.status) || E.manualOpen;
   box.hidden = false;
   if (!need) { box.innerHTML = '<button type="button" class="link small" data-man="open">Выложу на этой площадке сам, вручную</button>'; return; }
@@ -519,7 +512,7 @@ function renderManual() {
     <ol class="steps">${f.manual.map((s) => `<li>${esc(s)}</li>`).join('')}</ol>
     <div class="acc-act">${post?.caption && f.caption !== 'none' ? '<button type="button" class="ghost small" data-man="copy">Скопировать подпись</button>' : ''}
       ${(post?.media || []).map((m) => `<a class="ghost small btn" href="${media(m)}" download="${esc(base(m))}">⬇ ${esc(base(m))}</a>`).join('')}</div>
-    <div class="tok"><input id="man-url" placeholder="Ссылка на вышедший пост (можно пусто)"><button type="button" class="primary small" data-man="mark">Опубликовано вручную</button></div>`;
+    <div class="acc-act"><button type="button" class="primary small" data-man="mark">✓ Выложил</button></div>`;
 }
 
 function fitsKind(r, kind) {
@@ -589,9 +582,9 @@ document.addEventListener('click', async (e) => {
       const t = E.targets[0];
       if (d.man === 'open') { E.manualOpen = true; renderManual(); }
       if (d.man === 'copy') { await navigator.clipboard.writeText(S.posts.find((x) => x.id === E.id).caption); toast('Подпись скопирована'); }
-      if (d.man === 'mark' || d.man === 'link') {
-        await api('POST', `/api/targets/${t.id}/${d.man}`, { url: $('#man-url').value.trim() });
-        toast(d.man === 'mark' ? 'Отмечено: опубликовано вручную' : 'Ссылка добавлена'); $('#editor').close(); await load();
+      if (d.man === 'mark') {
+        await api('POST', `/api/targets/${t.id}/mark`, {});
+        toast('Отмечено: опубликовано вручную'); $('#editor').close(); await load();
       }
     }
     else if ('copyPost' in d) {
@@ -629,7 +622,7 @@ document.addEventListener('click', async (e) => {
     else if ('tgUnlink' in d) { await api('DELETE', '/api/me/telegram'); await load(); }
     else if ('notifyTest' in d) { await api('POST', '/api/notify-test'); toast('Отправлено — проверьте Telegram'); }
     else if ('copy' in d) { await navigator.clipboard.writeText($('.pack-cap pre').textContent); toast('Подпись скопирована'); }
-    else if (d.mark) { await api('POST', `/api/targets/${d.mark}/mark`, { url: $('#pack-url').value.trim() }); $('#pack').close(); toast('Отмечено'); await load(); }
+    else if (d.mark) { await api('POST', `/api/targets/${d.mark}/mark`, {}); $('#pack').close(); toast('Отмечено'); await load(); }
     else if (d.disconnect) { if (confirm('Отключить площадку? Ключ удалится.')) { await api('DELETE', `/api/accounts/${d.disconnect}`); await load(); } }
     else if (d.pick) { const i = E.media.indexOf(d.pick); i >= 0 ? E.media.splice(i, 1) : E.media.push(d.pick); renderPicked(); renderTargets(); check(); }
     else if (d.unpick) { E.media.splice(+d.unpick, 1); renderPicked(); renderTargets(); check(); }

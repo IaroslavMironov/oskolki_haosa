@@ -121,7 +121,7 @@ export default {
     'Вставьте ниже ключ бота и канал (@имя канала или ссылку t.me/…; для закрытого канала — его id, начинается с -100) → «Подключить». Сервис сам проверит, что бот — админ с правом публиковать.',
   ],
   formats: {
-    post: { title: 'Пост', auto: true, cover: ['frame', 'image'], caption: 'auto', manual: ['Скачать файлы', 'Telegram → канал → вставить файлы и подпись', 'Опубликовать и вставить сюда ссылку на пост'], rules: { media: 'any', maxFiles: 10, maxMB: 50, needsText: true, maxCaption: MESSAGE },
+    post: { title: 'Пост', auto: true, cover: ['frame', 'image'], caption: 'auto', manual: ['Скачать файлы', 'Telegram → канал → вставить файлы и подпись', 'Опубликовать и нажать «✓ Выложил»'], rules: { media: 'any', maxFiles: 10, maxMB: 50, needsText: true, maxCaption: MESSAGE },
       hint: 'Текст, фото, ролик или альбом до 10 файлов. Подпись до 1024 знаков — под файлом, длиннее — отдельным сообщением следом. Файлы до 50 МБ.' },
   },
 };

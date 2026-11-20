@@ -184,7 +184,7 @@ export default {
   ],
   connect: 'oauth',
   formats: {
-    short: { title: 'Shorts', auto: true, comment: 'auto', cover: ['frame', 'image'], caption: 'auto', manual: ['Скачать ролик', 'YouTube Studio → Создать → Загрузить: название, описание, обложка', 'Опубликовать и вставить сюда ссылку'], rules: { media: 'video', vertical: true, maxSec: 180, maxCaption: 2400, title: true },
+    short: { title: 'Shorts', auto: true, comment: 'auto', cover: ['frame', 'image'], caption: 'auto', manual: ['Скачать ролик', 'YouTube Studio → Создать → Загрузить: название, описание, обложка', 'Опубликовать и нажать «✓ Выложил»'], rules: { media: 'video', vertical: true, maxSec: 180, maxCaption: 2400, title: true },
       hint: 'Публикуется сразу публично. Название — до 100 знаков, описание — до ~2400 знаков кириллицы (5000 байт), хэштеги из подписи уходят в теги.' },
   },
 };

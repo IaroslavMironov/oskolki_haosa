@@ -178,9 +178,9 @@ export default {
   ],
   connect: 'oauth',
   formats: {
-    draft: { title: 'Черновик', auto: true, level: 'half', comment: 'manual', cover: [], caption: 'copy', manual: ['Открыть TikTok на телефоне → Входящие → Уведомления системы → «Ваше видео из приложения Глашатай готово»', 'Вставить подпись — бот прислал её в Telegram (касание копирует) или «Скопировать подпись» здесь', 'Выбрать обложку в TikTok', 'Опубликовать и вставить сюда ссылку на ролик'], rules: { media: 'video', vertical: true, minSec: 3, maxSec: 600, maxMB: 1024 },
+    draft: { title: 'Черновик', auto: true, level: 'half', comment: 'manual', cover: [], caption: 'copy', manual: ['Открыть TikTok на телефоне → Входящие → Уведомления системы → «Ваше видео из приложения Глашатай готово»', 'Вставить подпись — бот прислал её в Telegram (касание копирует) или «Скопировать подпись» здесь', 'Выбрать обложку в TikTok', 'Опубликовать и нажать «✓ Выложил»'], rules: { media: 'video', vertical: true, minSec: 3, maxSec: 600, maxMB: 1024 },
       hint: 'Ролик придёт во «Входящие» TikTok, подпись и публикация — в приложении одним нажатием. Подпись TikTok к черновику не принимает — её пришлёт бот в Telegram, касание копирует. Не больше 5 черновиков в сутки.' },
-    video: { title: 'Публикация', auto: true, comment: 'manual', cover: ['frame'], caption: 'auto', manual: ['Скачать ролик', 'TikTok → ＋ (или tiktok.com/tiktokstudio/upload): ролик, подпись, обложка', 'Опубликовать и вставить сюда ссылку'], rules: { media: 'video', vertical: true, minSec: 3, maxSec: 600, maxMB: 1024, maxCaption: 2200 },
+    video: { title: 'Публикация', auto: true, comment: 'manual', cover: ['frame'], caption: 'auto', manual: ['Скачать ролик', 'TikTok → ＋ (или tiktok.com/tiktokstudio/upload): ролик, подпись, обложка', 'Опубликовать и нажать «✓ Выложил»'], rules: { media: 'video', vertical: true, minSec: 3, maxSec: 600, maxMB: 1024, maxCaption: 2200 },
       hint: 'Без аудита приложения TikTok — только «видно мне» и только с приватного аккаунта.' },
   },
 };

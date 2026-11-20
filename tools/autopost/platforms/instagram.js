@@ -199,12 +199,12 @@ export default {
     'Нажмите <b>Generate token</b> напротив аккаунта и вставьте ключ ниже. Ключ живёт 60 дней — сервис продлевает его сам.',
   ],
   formats: {
-    reels: { title: 'Reels', auto: true, comment: 'auto', cover: ['frame'], caption: 'auto', manual: ['Скачать ролик', 'Instagram → ＋ → Reels: ролик, подпись, обложка', 'Опубликовать и вставить сюда ссылку'], rules: { media: 'video', vertical: true, minSec: 3, maxSec: 900, maxMB: 300, maxCaption: 2200 },
+    reels: { title: 'Reels', auto: true, comment: 'auto', cover: ['frame'], caption: 'auto', manual: ['Скачать ролик', 'Instagram → ＋ → Reels: ролик, подпись, обложка', 'Опубликовать и нажать «✓ Выложил»'], rules: { media: 'video', vertical: true, minSec: 3, maxSec: 900, maxMB: 300, maxCaption: 2200 },
       hint: 'Сразу в ленту и вкладку Reels. До 2200 знаков и 30 хэштегов. Кадр-обложку выбирайте здесь: у ролика, выложенного через Глашатай, Instagram обычно не даёт сменить обложку потом.' },
-    image: { title: 'Фото', auto: true, comment: 'auto', cover: [], caption: 'auto', manual: ['Скачать картинку', 'Instagram → ＋ → Публикация: картинка и подпись', 'Опубликовать и вставить сюда ссылку'], rules: { media: 'image', jpeg: true, maxMB: 8, maxCaption: 2200, needsPublic: true }, hint: 'Только JPEG до 8 МБ, пропорции от 4:5 до 1.91:1.' },
-    carousel: { title: 'Карусель', auto: true, comment: 'auto', cover: [], caption: 'auto', manual: ['Скачать картинки', 'Instagram → ＋ → Публикация → выбрать несколько: картинки по порядку, подпись', 'Опубликовать и вставить сюда ссылку'], rules: { media: 'images', minImages: 2, maxImages: 20, jpeg: true, maxMB: 8, maxCaption: 2200, needsPublic: true },
+    image: { title: 'Фото', auto: true, comment: 'auto', cover: [], caption: 'auto', manual: ['Скачать картинку', 'Instagram → ＋ → Публикация: картинка и подпись', 'Опубликовать и нажать «✓ Выложил»'], rules: { media: 'image', jpeg: true, maxMB: 8, maxCaption: 2200, needsPublic: true }, hint: 'Только JPEG до 8 МБ, пропорции от 4:5 до 1.91:1.' },
+    carousel: { title: 'Карусель', auto: true, comment: 'auto', cover: [], caption: 'auto', manual: ['Скачать картинки', 'Instagram → ＋ → Публикация → выбрать несколько: картинки по порядку, подпись', 'Опубликовать и нажать «✓ Выложил»'], rules: { media: 'images', minImages: 2, maxImages: 20, jpeg: true, maxMB: 8, maxCaption: 2200, needsPublic: true },
       hint: 'До 20 картинок; всё обрежется по пропорциям первой.' },
-    story: { title: 'История', auto: true, cover: [], caption: 'none', manual: ['Скачать файл', 'Instagram → ＋ → История: файл, при желании стикер-ссылка на oskolkihaosa.ru', 'Опубликовать и отметить здесь'], rules: { media: 'any', maxFiles: 1, maxSec: 60, maxMB: 100 },
+    story: { title: 'История', auto: true, cover: [], caption: 'none', manual: ['Скачать файл', 'Instagram → ＋ → История: файл, при желании стикер-ссылка на oskolkihaosa.ru', 'Опубликовать и нажать «✓ Выложил»'], rules: { media: 'any', maxFiles: 1, maxSec: 60, maxMB: 100 },
       hint: 'Без подписи и стикеров: ссылку-стикер API поставить не даёт — для истории со ссылкой выбирайте «вручную».' },
   },
 };
