@@ -62,7 +62,7 @@ function site(s) {
       ${spark(s.days.map((d) => ({ day: d.day, count: d.visits })), 'Визиты по дням')}</section>
     <div><h4 class="an-h4">Откуда пришли <span class="an-muted">· визиты</span></h4>${s.sources.length ? bars(s.sources.map((x) => ({ name: x.name, n: x.visits })), 'визитов') : '<p class="an-muted">Визитов пока нет.</p>'}
       ${s.utm.length ? `<h4 class="an-h4">По меткам в ссылках профилей</h4>${bars(s.utm.map((x) => ({ name: x.name, n: x.visits })), 'визитов')}` : ''}
-      <h4 class="an-h4">Куда кликают с сайта <span class="an-muted">· 🎧 — слушать</span></h4>${s.links.length ? bars(s.links.map((x) => ({ name: `${x.listen ? '🎧 ' : ''}${x.name}`, n: x.clicks })), 'кликов') : '<p class="an-muted">Кликов по внешним ссылкам пока нет.</p>'}</div>
+      <h4 class="an-h4">Куда кликают с сайта <span class="an-muted">· 🎧 — слушать</span></h4>${s.links.length ? bars(s.links.map((x) => ({ name: `${x.listen ? '🎧 ' : ''}${x.name}`, n: x.clicks })), 'кликов') : `<p class="an-muted">${esc(s.note || 'Кликов по внешним ссылкам пока нет.')}</p>`}</div>
   </div>`;
 }
 

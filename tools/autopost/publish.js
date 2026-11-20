@@ -31,7 +31,8 @@ export const fmt = (t) => PLATFORMS[t.platform]?.formats[t.format];
 export const captionOf = (t, post) => (t.caption ?? post.caption ?? '').trim();
 
 /*
- * Задачи после публикации — то, что остаётся человеку: опубликовать черновик TikTok, оставить и закрепить комментарий.
+ * Задачи после публикации — то, что остаётся человеку: опубликовать черновик TikTok, оставить комментарий, если Глашатай не смог.
+ * Закреплять комментарий Владислав и так закрепляет сам — задачей это не считаем (20.11, без лишнего шума).
  * Хранятся у публикации (targets.tasks), отмечаются галочкой в кабинете; незакрытые — в «Требует внимания».
  */
 export function tasksFor(t, post, { pending = false } = {}) {
@@ -39,7 +40,6 @@ export function tasksFor(t, post, { pending = false } = {}) {
   if (pending) out.push({ key: 'publish', title: `Опубликовать черновик в ${PLATFORMS[t.platform].title}, вставив подпись`, copy: captionOf(t, post) || null, done: false });
   if (post.comment?.trim() && f?.comment) {
     out.push({ key: 'comment', title: 'Оставить первый комментарий', copy: post.comment.trim(), done: false });
-    out.push({ key: 'pin', title: 'Закрепить комментарий', done: false });
   }
   return out;
 }
@@ -151,6 +151,7 @@ export async function publishDue() {
  * не ставят, поэтому смотрим и черновики. Прошло больше STALE_HOURS — не шлём (не заваливаем чат старьём).
  */
 try { db.exec('alter table targets add column reminded_at text'); } catch { /* уже есть */ }
+const MARK = { vk: '🟦', tiktok: '⬛' }; // площадка видна с одного взгляда, пакеты не сливаются
 export async function remindManual() {
   const rows = all(`select * from targets where mode='manual' and status in ('draft','scheduled','due') and reminded_at is null and planned_at <= ?
     order by planned_at limit 10`, now());
@@ -164,7 +165,7 @@ export async function remindManual() {
     const when = new Date(t.planned_at).toLocaleString('ru-RU', { timeZone: 'Europe/Moscow', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
     // только что и куда — дальше файл, подпись и комментарий, чтобы сразу копировать (Владислав 18.11: без инструкций)
     await sendPackage({
-      head: `✋ ${post.title.replace(/^Ролик:\s*/, '')} · ${p.title}, ${f.title} · ${when}`,
+      where: `${MARK[t.platform] || '✋'} ${p.title === 'ВКонтакте' ? 'VK' : p.title}${t.platform === 'tiktok' ? '' : ` · ${f.title}`}`, when, title: post.title.replace(/^Ролик:\s*/, ''),
       files: post.media.map(abs), caption: f.caption === 'none' ? '' : captionOf(t, post), comment: f.comment ? post.comment || '' : '', targetId: t.id,
     });
   }

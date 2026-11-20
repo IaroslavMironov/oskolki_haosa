@@ -55,22 +55,33 @@ const chatsAll = () => [...new Set([...all('select tg_chat_id from users where t
  * отдельными сообщениями — их удобно зажать и скопировать. Видео — как есть (бот не пережимает),
  * картинки — документом, чтобы не потерять качество. Владислав 18.11: «чтобы все материалы приходили в бот».
  */
-export async function sendPackage({ head, files = [], caption = '', comment = '', targetId = null }) {
-  // кнопка «✓ Выложил» — под последним сообщением пакета; нажатие отмечает публикацию в Глашатае (как в кабинете)
+const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]);
+
+/**
+ * Пакет для ручной публикации (VK, TikTok). Владислав 18–20.11: без инструкций, но чтобы пакеты не сливались:
+ *  1) ролик с шапкой-подписью (черта, площадка, когда, что) — или шапка отдельным сообщением, если файлов не один ролик;
+ *  2) «подпись» и 3) «комментарий» — у каждого метка площадки, сам текст в блоке: касание копирует его целиком;
+ *  кнопка «✓ Выложил» под последним сообщением — отмечает публикацию в Глашатае (как в кабинете).
+ */
+export async function sendPackage({ where, when, title, files = [], caption = '', comment = '', targetId = null }) {
   const kb = targetId ? { inline_keyboard: [[{ text: '✓ Выложил', callback_data: `mark:${targetId}`, style: 'success' }]] } : null;
-  const last = comment ? 'comment' : caption ? 'caption' : files.length ? 'file' : 'head';
-  const mk = (part) => (kb && part === last ? { reply_markup: kb } : {});
+  const tag = `<b>${esc(where)}</b>`, head = `━━━━━━━━━━━━━━━━\n${tag} · ${esc(when)}\n${esc(title)}`;
+  const texts = [caption && ['📝 подпись', caption], comment && ['💬 комментарий', comment]].filter(Boolean);
+  const html = { parse_mode: 'HTML', link_preview_options: { is_disabled: true } };
+  const oneVideo = files.length === 1 && isVideo(files[0]);
+  const btn = (isLast) => (kb && isLast ? { reply_markup: kb } : {});
   for (const c of chatsAll()) {
     try {
-      await tg('sendMessage', { chat_id: c, text: head.slice(0, 4000), link_preview_options: { is_disabled: true }, ...mk('head') });
+      if (!oneVideo) await tg('sendMessage', { chat_id: c, text: head, ...html, ...btn(!files.length && !texts.length) });
       for (const [i, f] of files.entries()) {
-        const rm = i === files.length - 1 && kb && last === 'file' ? { reply_markup: JSON.stringify(kb) } : {};
+        const extra = { ...(oneVideo ? { caption: head, parse_mode: 'HTML' } : {}), ...(kb && !texts.length && i === files.length - 1 ? { reply_markup: JSON.stringify(kb) } : {}) };
         // без размеров и длительности Telegram показывает вертикальный ролик криво (квадратом/сплющенным)
-        if (isVideo(f)) { const v = await probe(f); await tgFile('sendVideo', { chat_id: c, supports_streaming: true, width: v.width, height: v.height, duration: v.duration ? Math.round(v.duration) : null, ...rm }, 'video', f); }
-        else await tgFile('sendDocument', { chat_id: c, ...rm }, 'document', f);
+        if (isVideo(f)) { const v = await probe(f); await tgFile('sendVideo', { chat_id: c, supports_streaming: true, width: v.width, height: v.height, duration: v.duration ? Math.round(v.duration) : null, ...extra }, 'video', f); }
+        else await tgFile('sendDocument', { chat_id: c, ...extra }, 'document', f);
       }
-      if (caption) await tg('sendMessage', { chat_id: c, text: caption.slice(0, 4000), link_preview_options: { is_disabled: true }, ...mk('caption') });
-      if (comment) await tg('sendMessage', { chat_id: c, text: comment.slice(0, 4000), link_preview_options: { is_disabled: true }, ...mk('comment') });
+      for (const [i, [label, text]] of texts.entries()) {
+        await tg('sendMessage', { chat_id: c, text: `${tag} · ${label}\n<pre>${esc(text.slice(0, 3800))}</pre>`, ...html, ...btn(i === texts.length - 1) });
+      }
     } catch (e) { console.warn('telegram (пакет):', e.message); }
   }
 }

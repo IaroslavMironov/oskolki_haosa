@@ -177,8 +177,9 @@ const ACTIONS = {
   mark(t, b, by) {
     // Вышло руками: задача «опубликовать» закрыта; комментарий и закрепление — задачами, если у поста есть комментарий.
     const post = parsePost(get('select * from posts where id=?', t.post_id));
+    // отметил «вышло» — значит выложил всё из пакета, вместе с комментарием
     const tasks = t.tasks ? JSON.parse(t.tasks) : tasksFor(t, post);
-    for (const x of tasks) if (x.key === 'publish') x.done = true;
+    for (const x of tasks) x.done = true;
     if (!move(t.id, ['due', 'unknown', 'scheduled', 'draft', 'failed'], 'published', { url: b.url || null, published_at: now(), error: null, tasks: JSON.stringify(tasks) })) return { error: 'нельзя' };
     log(`${PLATFORMS[t.platform].title}: отмечено как опубликованное ${b.url || ''}`, { postId: t.post_id, targetId: t.id, by });
     return { ok: true };

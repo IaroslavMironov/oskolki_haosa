@@ -150,7 +150,7 @@ test('Telegram: альбом с длинной подписью — альбом
   } finally { globalThis.fetch = realFetch; }
 });
 
-test('задачи после публикации: комментарий оставлен сам → закрыт, «закрепить» — человеку; не пустили → ручная задача', async () => {
+test('задачи после публикации: комментарий оставлен сам → задач нет (закрепляет человек без напоминаний); не пустили → ручная задача', async () => {
   const left = (id) => JSON.parse(T(id).tasks).filter((x) => !x.done).map((x) => x.key);
   const a = target();
   run("update posts set comment='слушать в профиле' where id=(select post_id from targets where id=?)", a);
@@ -158,14 +158,14 @@ test('задачи после публикации: комментарий ос�
   PLATFORMS.youtube.comment = async ({ text }) => { said.push(text); };
   await publishDue();
   assert.deepEqual(said, ['слушать в профиле']);
-  assert.deepEqual(left(a), ['pin']);
+  assert.deepEqual(left(a), []);
 
   const b = target();
   run("update posts set comment='слушать в профиле' where id=(select post_id from targets where id=?)", b);
   PLATFORMS.youtube.comment = async () => { throw new Error('нет права'); };
   await publishDue();
   assert.equal(T(b).status, 'published');
-  assert.deepEqual(left(b), ['comment', 'pin']);
+  assert.deepEqual(left(b), ['comment']);
   assert.match(JSON.parse(T(b).tasks)[0].note, /нет права/);
 });
 
@@ -229,13 +229,13 @@ test('Telegram: кнопки «слушать» ведут на последню
   assert.deepEqual(after.inline_keyboard[0].map((b) => b.style), ['primary', 'success']);
 });
 
-test('Ворожея отвечает: номер карты из комментария, 1–3 — случайная карта, 4–42 — по номеру', async () => {
-  const { cardNumber, replyText } = await import('./oracle.js');
-  assert.deepEqual(['2', 'карта 3!', '№17', ' 42 ', 'вторая', '43', '0', 'мне 25 лет и я люблю эту песню очень сильно правда', '1 и 2'].map(cardNumber), [2, 3, 17, 42, null, null, null, null, null]);
-  const ctx = { deck: [{ card: 'А', text: 'а' }, { card: 'Б', text: 'б' }, { card: 'В', text: 'в' }, { card: 'Г', text: 'г' }], song: 'Ворожея' };
-  const r = replyText(2, ctx, () => 0.6);
-  assert.equal(r.card, 3); assert.match(r.text, /Вторая карта — «В»\.\n«в»$/);
-  assert.match(replyText(4, ctx, () => 0).text, /Карта №4 — «Г»/);
+test('Ворожея отвечает: на слово «расклад» — случайная карта', async () => {
+  const { asksReading, replyText } = await import('./oracle.js');
+  assert.deepEqual(['расклад', 'Расклад!', 'сделай мне расклад 🔮', 'РАСКЛАДА', '2', 'карта', 'песня «Расклад» просто огонь, слушаю уже третий день подряд и не надоедает'].map(asksReading),
+    [true, true, true, true, false, false, false]);
+  const ctx = { deck: [{ card: 'А', text: 'а' }, { card: 'Б', text: 'б' }, { card: 'В', text: 'в' }, { card: 'Г', text: 'г' }] };
+  const r = replyText(ctx, () => 0.6);
+  assert.equal(r.card, 3); assert.match(r.text, /Твоя карта — «В»\.\n«в»$/);
 });
 
 test('Instagram Reels без обложки в очередь не встаёт', async () => {

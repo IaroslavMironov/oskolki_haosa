@@ -90,7 +90,13 @@ const NETWORK = { Facebook: 'Instagram / Facebook' };
 
 async function metrika(token, params) {
   const q = new URLSearchParams({ ids: COUNTER, date1: '30daysAgo', date2: 'today', limit: 50, lang: 'ru', accuracy: 'full', ...params });
-  const r = await fetch(`https://api-metrika.yandex.net/stat/v1/data?${q}`, { headers: { Authorization: `OAuth ${token}` }, signal: AbortSignal.timeout(20_000) });
+  let r;
+  // Метрика иногда отвечает 503 на часть запросов (замечено 19.11) — повторяем пару раз
+  for (let i = 0; i < 3; i++) {
+    r = await fetch(`https://api-metrika.yandex.net/stat/v1/data?${q}`, { headers: { Authorization: `OAuth ${token}` }, signal: AbortSignal.timeout(20_000) });
+    if (r.status < 500) break;
+    await new Promise((ok) => setTimeout(ok, 1500));
+  }
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(r.status === 403 || r.status === 401 ? 'Метрика не приняла токен — нужен токен с правом «получение статистики» от аккаунта, где есть счётчик' : j.message || `Метрика ответила ${r.status}`);
   const rows = j.data.map((x) => ({ id: x.dimensions[0]?.id ?? null, name: x.dimensions[0]?.name ?? null, n: x.metrics }));
@@ -109,10 +115,10 @@ export async function siteState(force = false) {
       metrika(token, { dimensions: 'ym:s:lastTrafficSource', metrics: 'ym:s:visits', sort: '-ym:s:visits' }),
       metrika(token, { dimensions: 'ym:s:lastSocialNetwork', metrics: 'ym:s:visits', sort: '-ym:s:visits' }),
       metrika(token, { dimensions: 'ym:s:lastUTMSource', metrics: 'ym:s:visits', sort: '-ym:s:visits' }),
-      metrika(token, { dimensions: 'ym:el:URL', metrics: 'ym:el:links', sort: '-ym:el:links', limit: 200 }),
+      metrika(token, { dimensions: 'ym:el:URL', metrics: 'ym:el:links', sort: '-ym:el:links', limit: 200 }).catch(() => null), // без кликов — остальное всё равно показываем
     ]);
     const clicks = new Map();
-    for (const l of links) {
+    for (const l of links || []) {
       const [, name = new URL(l.name).hostname, listen = false] = LINKS.find(([re]) => re.test(l.name)) || [];
       const c = clicks.get(name) || { name, clicks: 0, listen };
       c.clicks += l.n[0]; clicks.set(name, c);
@@ -125,6 +131,7 @@ export async function siteState(force = false) {
       days: days.map((d) => ({ day: d.name, visits: d.n[0], users: d.n[1] })),
       visits: days.totals[0] ?? 0, users: days.totals[1] ?? 0, // уникальные за 30 дней — не сумма по дням
       links: [...clicks.values()].sort((a, b) => b.clicks - a.clicks),
+      ...(links ? {} : { note: 'клики по ссылкам Метрика сейчас не отдала — обновите позже' }),
       sources: from,
       utm: utm.filter((u) => u.name).map((u) => ({ name: u.name, visits: u.n[0] })),
     };
