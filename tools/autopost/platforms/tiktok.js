@@ -135,7 +135,8 @@ async function stats({ target, account: acc }) {
   if (!id) {
     const d = await api(`/v2/video/list/?fields=${FIELDS}`, access, { max_count: 20 });
     const taken = new Set(all("select remote_id from targets where platform='tiktok' and id<>?", target.id).map((r) => r.remote_id));
-    const after = Date.parse(target.published_at) / 1000 - 3600;
+    // ручной ролик выложен после пакета (planned_at), а «Выложил» нажат, может, позже — ищем от более раннего
+    const after = Math.min(Date.parse(target.planned_at), Date.parse(target.published_at)) / 1000 - 3600;
     const v = (d.videos || []).filter((x) => x.create_time >= after && !taken.has(String(x.id))).sort((a, b) => a.create_time - b.create_time)[0];
     if (!v) return null;
     run('update targets set remote_id=?, url=coalesce(url, ?) where id=?', String(v.id), v.share_url?.split('?')[0] || null, target.id);

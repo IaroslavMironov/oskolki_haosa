@@ -182,8 +182,9 @@ export function recoverInterrupted() {
 /** Цифры опубликованного (просмотры, лайки) — раз в 6 часов, первые 30 дней после выхода. */
 export async function collectStats({ force = false } = {}) {
   if (DRY()) return;
-  const rows = all(`select * from targets where status='published' and removed_at is null and (remote_id is not null or url is not null or platform='vk')
-    and published_at > ? and (stats_at is null or stats_at < ?)`, new Date(Date.now() - 30 * 864e5).toISOString(), new Date(Date.now() - (force ? 0 : 6 * 3600e3)).toISOString());
+  // VK и TikTok находят свой пост сами (стена / список роликов) — ссылка не нужна (Владислав 20.11: без ссылок)
+  const rows = all(`select * from targets where status='published' and removed_at is null and (remote_id is not null or url is not null or platform in ('vk','tiktok'))
+    and published_at > ? and (stats_at is null or stats_at < ?) order by published_at`, new Date(Date.now() - 30 * 864e5).toISOString(), new Date(Date.now() - (force ? 0 : 6 * 3600e3)).toISOString());
   for (const t of rows) {
     const p = PLATFORMS[t.platform];
     const acc = account(t.platform);
