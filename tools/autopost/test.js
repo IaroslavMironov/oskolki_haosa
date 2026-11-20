@@ -261,3 +261,22 @@ test('ручные (VK, TikTok): в срок — пакет в бота один
   assert.ok(T(old).reminded_at, 'старое помечено, но не шлётся');
   assert.equal(T(later).reminded_at, null, 'будущее не трогаем');
 });
+
+test('кнопка «✓ Выложил»: пакет запоминает, где кнопка; отметка в кабинете меняет её в боте', async () => {
+  const { sendPackage, packageDone } = await import('./notify.js');
+  const { saveSetting } = await import('./secrets.js');
+  saveSetting('TG_BOT_TOKEN', '1:x'); saveSetting('TG_CHAT_ID', '777');
+  const pid = Number(run("insert into posts (title, kind, caption, media) values ('пакет','text','подпись','[]')").lastInsertRowid);
+  const id = Number(run("insert into targets (post_id, platform, format, planned_at, mode) values (?, 'vk', 'post', ?, 'manual')", pid, now()).lastInsertRowid);
+  const calls = [], real = globalThis.fetch;
+  let n = 100;
+  globalThis.fetch = async (url, init) => { calls.push([String(url).split('/').pop(), JSON.parse(init.body)]); return new Response(JSON.stringify({ ok: true, result: { message_id: ++n } })); };
+  try {
+    await sendPackage({ where: '🟦 VK · Пост', when: '20.11', title: 'пакет', caption: 'подпись', comment: 'коммент', targetId: id });
+    const last = n;
+    assert.deepEqual(JSON.parse(get('select tg_msgs from targets where id=?', id).tg_msgs), [['777', last]], 'кнопка — под последним сообщением');
+    await packageDone(id);
+    const [method, body] = calls.at(-1);
+    assert.equal(method, 'editMessageReplyMarkup'); assert.equal(body.message_id, last); assert.equal(body.reply_markup.inline_keyboard[0][0].text, '✓ Выложено');
+  } finally { globalThis.fetch = real; saveSetting('TG_BOT_TOKEN', ''); saveSetting('TG_CHAT_ID', ''); }
+});

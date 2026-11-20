@@ -63,6 +63,18 @@ const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt
  *  2) «подпись» и 3) «комментарий» — у каждого метка площадки, сам текст в блоке: касание копирует его целиком;
  *  кнопка «✓ Выложил» под последним сообщением — отмечает публикацию в Глашатае (как в кабинете).
  */
+// Где в Telegram стоит кнопка «✓ Выложил» пакета: [[чат, сообщение]] — чтобы отметка в кабинете меняла кнопку и в боте.
+try { db.exec('alter table targets add column tg_msgs text'); } catch { /* уже есть */ }
+const DONE_KB = { inline_keyboard: [[{ text: '✓ Выложено', callback_data: 'done' }]] };
+
+/** Публикация отмечена (где угодно) — у всех её пакетов в боте кнопка становится «✓ Выложено». */
+export async function packageDone(targetId) {
+  const r = get('select tg_msgs from targets where id=?', targetId);
+  for (const [chat, msg] of JSON.parse(r?.tg_msgs || '[]')) {
+    await tg('editMessageReplyMarkup', { chat_id: chat, message_id: msg, reply_markup: DONE_KB }).catch(() => {}); // уже изменена / удалена — не важно
+  }
+}
+
 export async function sendPackage({ where, when, title, files = [], caption = '', comment = '', targetId = null }) {
   const kb = targetId ? { inline_keyboard: [[{ text: '✓ Выложил', callback_data: `mark:${targetId}`, style: 'success' }]] } : null;
   const tag = `<b>${esc(where)}</b>`, head = `━━━━━━━━━━━━━━━━\n${tag} · ${esc(when)}\n${esc(title)}`;
@@ -70,20 +82,24 @@ export async function sendPackage({ where, when, title, files = [], caption = ''
   const html = { parse_mode: 'HTML', link_preview_options: { is_disabled: true } };
   const oneVideo = files.length === 1 && isVideo(files[0]);
   const btn = (isLast) => (kb && isLast ? { reply_markup: kb } : {});
+  const sent = []; // сообщения с кнопкой
   for (const c of chatsAll()) {
     try {
-      if (!oneVideo) await tg('sendMessage', { chat_id: c, text: head, ...html, ...btn(!files.length && !texts.length) });
+      let m;
+      if (!oneVideo) m = await tg('sendMessage', { chat_id: c, text: head, ...html, ...btn(!files.length && !texts.length) });
       for (const [i, f] of files.entries()) {
         const extra = { ...(oneVideo ? { caption: head, parse_mode: 'HTML' } : {}), ...(kb && !texts.length && i === files.length - 1 ? { reply_markup: JSON.stringify(kb) } : {}) };
         // без размеров и длительности Telegram показывает вертикальный ролик криво (квадратом/сплющенным)
-        if (isVideo(f)) { const v = await probe(f); await tgFile('sendVideo', { chat_id: c, supports_streaming: true, width: v.width, height: v.height, duration: v.duration ? Math.round(v.duration) : null, ...extra }, 'video', f); }
-        else await tgFile('sendDocument', { chat_id: c, ...extra }, 'document', f);
+        if (isVideo(f)) { const v = await probe(f); m = await tgFile('sendVideo', { chat_id: c, supports_streaming: true, width: v.width, height: v.height, duration: v.duration ? Math.round(v.duration) : null, ...extra }, 'video', f); }
+        else m = await tgFile('sendDocument', { chat_id: c, ...extra }, 'document', f);
       }
       for (const [i, [label, text]] of texts.entries()) {
-        await tg('sendMessage', { chat_id: c, text: `${tag} · ${label}\n<pre>${esc(text.slice(0, 3800))}</pre>`, ...html, ...btn(i === texts.length - 1) });
+        m = await tg('sendMessage', { chat_id: c, text: `${tag} · ${label}\n<pre>${esc(text.slice(0, 3800))}</pre>`, ...html, ...btn(i === texts.length - 1) });
       }
+      if (kb && m?.message_id) sent.push([c, m.message_id]); // кнопка всегда под последним сообщением пакета
     } catch (e) { console.warn('telegram (пакет):', e.message); }
   }
+  if (targetId && sent.length) run('update targets set tg_msgs=? where id=?', JSON.stringify(sent), targetId);
 }
 
 /** Всем, кто подключил уведомления (+ общий чат TG_CHAT_ID, если задан). strict — для кнопки «Проверить»: ошибки наружу. */
@@ -124,8 +140,8 @@ async function handleButton(q) {
   if (!user || !id || !markHandler) return tg('answerCallbackQuery', { callback_query_id: q.id, text: 'Не получилось — отметьте в кабинете' });
   const r = await markHandler(id, user.name);
   await tg('answerCallbackQuery', { callback_query_id: q.id, text: r.ok ? 'Отмечено: опубликовано' : r.already ? 'Уже отмечено' : `Не получилось: ${r.error}` });
-  if (r.ok || r.already) await tg('editMessageReplyMarkup', { chat_id: q.message.chat.id, message_id: q.message.message_id,
-    reply_markup: { inline_keyboard: [[{ text: '✓ Выложено', callback_data: 'done' }]] } }).catch(() => {});
+  // у остальных (второй человек, старые пакеты) кнопку меняет packageDone из отметки; эту — сразу
+  if (r.ok || r.already) await tg('editMessageReplyMarkup', { chat_id: q.message.chat.id, message_id: q.message.message_id, reply_markup: DONE_KB }).catch(() => {});
 }
 
 export async function handleUpdate(u) {

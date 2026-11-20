@@ -12,7 +12,7 @@ import { account, dropAccount, setting, saveSetting } from './secrets.js';
 import { login, logout, userOf, changePassword, allowLogin, COOKIE } from './auth.js';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { notify, linkStart, unlink, linkState, pollUpdates, botUsername, onMarkButton } from './notify.js';
+import { notify, linkStart, unlink, linkState, pollUpdates, botUsername, onMarkButton, packageDone } from './notify.js';
 import { PLATFORMS } from './platforms/index.js';
 import { oauth as vkidOauth } from './platforms/vkid.js';
 import { snapshotFollowers, analyticsState, siteState, vkCommunity, saveMusic } from './analytics.js';
@@ -182,6 +182,7 @@ const ACTIONS = {
     for (const x of tasks) x.done = true;
     if (!move(t.id, ['due', 'unknown', 'scheduled', 'draft', 'failed'], 'published', { url: b.url || null, published_at: now(), error: null, tasks: JSON.stringify(tasks) })) return { error: 'нельзя' };
     log(`${PLATFORMS[t.platform].title}: отмечено как опубликованное ${b.url || ''}`, { postId: t.post_id, targetId: t.id, by });
+    packageDone(t.id).catch(() => {}); // кнопка в боте → «✓ Выложено», где бы ни отметили
     return { ok: true };
   },
   // Галочка задачи после публикации.
