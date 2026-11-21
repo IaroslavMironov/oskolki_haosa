@@ -1,0 +1,19 @@
+{
+  "name": "oskolki-haosa",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "lint": "eslint .",
+    "test": "npm --prefix tools/autopost test && node --test tests/*.test.js",
+    "check": "eslint . && npm test"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "eslint": "^9.39.5",
+    "globals": "^17.14.0",
+    "puppeteer-core": "^25.18.1"
+  }
+}

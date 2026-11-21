@@ -1,6 +1,6 @@
 import { statSync, openAsBlob } from 'node:fs';
 import { call, form } from './http.js';
-import { saveAccount, setting } from '../secrets.js';
+import { saveAccount } from '../secrets.js';
 import { log } from '../db.js';
 import { notSent } from '../publish.js';
 import { publicUrl } from '../pubmedia.js';

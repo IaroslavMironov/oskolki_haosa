@@ -7,7 +7,6 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { db, all, get, run, log, move, now, parsePost, DATA } from './db.js';
 import { abs, listFiles, probe, mime, REPO, thumbFile } from './media.js';
-import { publicTarget } from './pubmedia.js';
 import { account, dropAccount, setting, saveSetting } from './secrets.js';
 import { login, logout, userOf, changePassword, allowLogin, COOKIE } from './auth.js';
 import { execFile } from 'node:child_process';

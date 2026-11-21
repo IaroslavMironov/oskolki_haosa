@@ -1,0 +1,19 @@
+# На каждый push — линтер и все тесты: Глашатай (правила публикации) и сайт в Chrome (тест, который кликает).
+# Только проверка: на сервер отсюда ничего не выкладывается (выкладка — по «пушь», с ноутбука).
+name: check
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: sudo apt-get install -y -qq ffmpeg >/dev/null   # тесты Глашатая собирают пробные ролики
+      - run: npm ci --no-audit --no-fund
+      - run: npm run check
