@@ -100,12 +100,15 @@ async function publish({ account: acc, format, files, caption, progress }) {
 const REF = /(wall|clip|video)(-\d+_\d+)/;
 async function findOwn(target, gid) {
   const clip = target.format === 'clip' || target.format === 'video';
-  const r = clip ? await vkAdmin('video.get', { owner_id: `-${gid}`, count: 50 }) : await vkAdmin('wall.get', { owner_id: `-${gid}`, count: 50 });
+  // Клипы сообщества video.get не отдаёт (count 0, 21.11) — находим их на стене: запись с вложением-клипом.
+  const r = await vkAdmin('wall.get', { owner_id: `-${gid}`, count: 50 });
   if (!r) return null;
-  const taken = new Set(all("select remote_id from targets where platform='vk' and remote_id is not null and id<>?", target.id).map((x) => x.remote_id));
+  const taken = new Set(all("select remote_id from targets where platform='vk' and (remote_id is not null or url is not null) and id<>?", target.id)
+    .map((x) => REF.exec(x.remote_id || '')?.[0] || REF.exec(x.url || '')?.[0]));
   const plan = Date.parse(target.planned_at) / 1000, until = Date.parse(target.published_at || new Date().toISOString()) / 1000 + 7200;
-  const kind = clip ? 'clip' : 'wall';
-  const best = (r.items || []).map((x) => ({ x, ref: `${kind}-${gid}_${x.id}` }))
+  const vid = (x) => x.attachments?.find((a) => a.type === 'video')?.video;
+  const best = (r.items || []).map((x) => ({ x, ref: clip ? (vid(x) ? `clip${vid(x).owner_id}_${vid(x).id}` : null) : vid(x)?.type === 'short_video' ? null : `wall-${gid}_${x.id}` }))
+    .filter(({ ref }) => ref)
     .filter(({ x, ref }) => x.date >= plan - 6 * 3600 && x.date <= until && !taken.has(ref) && !x.is_pinned_duplicate)
     .sort((a, b) => Math.abs(a.x.date - plan) - Math.abs(b.x.date - plan))[0];
   if (!best) return null;
